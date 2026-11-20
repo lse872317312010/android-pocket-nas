@@ -1,6 +1,16 @@
 # 架构与威胁模型 / Architecture and threat model
 
-## 首版目标架构 / Target architecture
+## 选型约束 / Reuse first
+
+先配置现有软件验证用户流程，再决定是否需要代码。下图描述逻辑职责；多个框可以由同一个成熟组件承担。优先比较完整产品，其次组合现有客户端、服务端和标准协议，最后才为已复现的缺口写最薄的适配。自建数据库、后台进程、命令 API 和 APK 均须有具体缺口才能立项。
+
+Validate user workflows with existing software before writing code. The diagram assigns responsibilities; one mature component may cover several boxes. Evaluate complete products first, then combinations of existing clients, servers and standard protocols. Add minimal glue only for demonstrated gaps. A custom database, daemon, command API or APK requires a specific unmet requirement.
+
+首个交付物是用现有客户端与服务端跑通 APK 下载、ZIP 上传及冲突处理的复现记录。逐项记录组件版本、配置、结果和缺口，尤其验证失败替换能否保住旧文件。媒体阶段先评估完整图库产品的复用能力及其在 1 TB Android 家庭机上的部署代价；单列 Redmi 原生相册适配状态。
+
+The first deliverable is a reproducible APK download, ZIP upload and conflict test using existing clients and servers. Record versions, configuration, outcomes and gaps, including preservation of the old file after a failed replacement. Evaluate complete media-library products and deployment costs on the 1 TB Android host before choosing a catalog. Track Redmi gallery integration separately.
+
+## 首版逻辑职责 / Target responsibilities
 
 ```mermaid
 flowchart TD
@@ -27,7 +37,7 @@ One owner, unrooted baseline. The drive supports explicit uploads and downloads.
 |---|---|
 | 仿真 / Simulation | Ubuntu, Python 3, OpenSSH, rclone, Syncthing, GitHub Actions. 回环测试已通过 / Loopback tests passed. |
 | 文件内容 / File bytes | SFTP；Android 服务端候选 SshDaemon 或 Termux + OpenSSH，文件入口候选 RSAF/SAF。 / Android server and picker candidates require device tests. |
-| 归档业务 / Archive logic | 建议 SQLite 保存对象 ID、版本、来源、显隐状态、回收站时间及操作回执；文件系统保存内容。 / Proposed SQLite catalog and operation journal; filesystem payloads. |
+| 归档业务 / Archive logic | 优先使用选定组件的索引、版本记录和任务状态。经验证仍缺持久状态时才考虑 SQLite。 / Prefer the chosen component’s catalog, version history and job state. Consider SQLite only for a demonstrated persistence gap. |
 | 连接 / Connectivity | LAN；异地私有 VPN 候选 Tailscale，Clash 共存待测。 / LAN and candidate Tailscale private access; Clash coexistence unverified. |
 | 系统入口 / Platform | Redmi 原生相册、文件选择器、系统分享最后适配。 / Stock gallery, picker and share integration deferred to device validation. |
 
