@@ -1,0 +1,19 @@
+# Security & local test artifacts
+*.key
+*.pem
+*.p12
+*.pfx
+.env
+.env.*
+!.env.example
+secrets/
+private/
+logs/
+*.log
+captures/
+*.pcap
+*.pcapng
+backups/
+*.zip
+.DS_Store
+Thumbs.db
