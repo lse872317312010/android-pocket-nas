@@ -26,3 +26,17 @@ Input and published SHA-256 values match. Identical-content retries return the s
 查看[首次真机清单](../checklists/DRIVE-M2-DEVICE.md)。需要能运行提交进程的家庭端、SFTP 服务与提交进程共同可访问的目录、以及该目录对锁/硬链接/fsync/重命名的支持。仅能通过 URI 访问的存储需要原生接口适配或改用通过探针的目录。原生文件管理器或 SAF 的兼容性、后台与机型性能分别以实测为准。使用用户数据之前先在专用目录验证。
 
 Use the [first-device checklist](../checklists/DRIVE-M2-DEVICE.md). The home must run the publisher and expose a directory shared with the SFTP service whose lock, hard-link, fsync and rename behavior passes the probe. URI-only storage requires an adapter or a tested alternative directory. Qualify native file manager/SAF, background behavior and device performance independently. Use a dedicated directory for first-device validation.
+
+## 超时后查询原回执 / Recover a lost acknowledgement
+
+保留首次上传在标准错误输出中打印的 32 位编号，以及名称和内容均未改变的源文件。在原客户端使用相同的远端根目录和配置运行以下命令。查询只读取该编号的回执，复用原上传的 SHA-256 和目标名校验。成功时输出家庭端实际文件名，包括重名时的编号。
+
+Keep the 32-character ID printed to stderr during the original upload and the source file with its original name and contents. On the original client, use the same remote root and config. This read-only lookup verifies the receipt against the source digest and allowed destination names, then prints the published name on success.
+
+```sh
+python3 scripts/drive_upload.py "$source" "$remote" --config "$cfg" --check-attempt "$id" --timeout 30
+```
+
+家庭端仍在处理时可以稍后用同一编号再查。超时表示发布状态仍未确认。若客户端在请求提交前断开，家庭端可能永远不会生成该回执。收到拒绝回执或源文件不匹配时，命令以非零状态退出。查询验证的是当时的发布记录；要核实当前远端内容，可下载并校验。
+
+If the home worker is still processing, repeat the lookup later with the same ID. A timeout leaves publication unconfirmed. An interruption before request submission can leave the attempt without a receipt indefinitely. A rejection receipt or source mismatch exits nonzero. The receipt records publication at the time of upload. Download and hash the remote object to verify its current contents.
