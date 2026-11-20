@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Exercise a temporary rclone SFTP client and loopback OpenSSH home node."""
+import re
 import pwd
 import hashlib
 import os
@@ -133,6 +134,26 @@ def check_receipts(server, client, config, rclone):
                 raise RuntimeError(f"unexpected upload result: {result}")
             if rclone("cat", f"home:{published}/{expected}") != data:
                 raise RuntimeError("receipt does not match downloaded bytes")
+        attempt = re.search(r"^Upload attempt: ([0-9a-f]{32})$", result.stderr, re.MULTILINE)[1]
+        receipts = set((root / "receipts").iterdir())
+        check = [sys.executable, scripts / "drive_upload.py", source, f"home:{root}",
+                 "--config", config, "--timeout", "10", "--check-attempt", attempt]
+        # Discard the previous stdout, as if the client lost the acknowledgement.
+        replay = subprocess.run(check, capture_output=True, text=True, timeout=15)
+        if replay.returncode or replay.stdout.strip() != expected:
+            raise RuntimeError(f"unable to reconcile collision receipt: {replay}")
+        source.write_bytes(b"changed after upload")
+        mismatch = subprocess.run(check, capture_output=True, text=True, timeout=15)
+        if mismatch.returncode == 0 or "does not match upload" not in mismatch.stderr:
+            raise RuntimeError(f"unexpected changed-source result: {mismatch}")
+        if set((root / "receipts").iterdir()) != receipts:
+            raise RuntimeError("receipt lookup created a new attempt")
+        missing = [*check[:-1], "0" * 32]
+        missing[missing.index("--timeout") + 1] = "1"
+        pending = subprocess.run(missing, capture_output=True, text=True, timeout=5)
+        if pending.returncode == 0 or "timed out" not in pending.stderr.lower():
+            raise RuntimeError(f"missing receipt was not reported as unconfirmed: {pending}")
+        print("PASS: original receipt lookup, changed-source rejection and missing-receipt timeout")
         deadline = time.monotonic() + 5
         while any((root / "incoming").iterdir()) and time.monotonic() < deadline:
             time.sleep(0.05)
