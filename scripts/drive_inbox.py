@@ -19,7 +19,7 @@ import tempfile
 import time
 
 from drive_commit import publish
-from drive_names import numbered_pattern
+from drive_names import copy_number
 
 
 @contextmanager
@@ -88,7 +88,7 @@ def process_job(root, job):
         if os.path.lexists(request):
             requested, expected = validate_record(read_json(request))
             if digest != expected or (requested != actual_name and
-                                      not re.fullmatch(numbered_pattern(Path(requested)), actual_name)):
+                                      copy_number(Path(requested), actual_name) is None):
                 raise ValueError("request ID already has a different receipt")
         elif os.path.lexists(payload):
             # Could be a client uploading; requests become actionable only on rename.

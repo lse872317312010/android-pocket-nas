@@ -20,7 +20,7 @@ import re
 import sys
 import tempfile
 
-from drive_names import numbered_pattern
+from drive_names import copy_number, numbered_name
 
 
 def copy_digest(source, output=None):
@@ -47,14 +47,11 @@ def select_destination(destination, expected, replace):
         if replace:
             return destination, True
 
-    stem = destination.stem
-    suffix = destination.suffix
-    pattern = re.compile(numbered_pattern(destination))
     numbered = {}
     for path in destination.parent.iterdir():
-        match = pattern.fullmatch(path.name)
-        if match:
-            numbered[int(match[1])] = path
+        number = copy_number(destination, path.name)
+        if number is not None:
+            numbered[number] = path
     if not replace:
         for number in sorted(numbered):
             if existing_digest(numbered[number]) == expected:
@@ -64,7 +61,7 @@ def select_destination(destination, expected, replace):
     number = 2
     while number in numbered:
         number += 1
-    return destination.with_name(f"{stem} ({number}){suffix}"), True
+    return destination.with_name(numbered_name(destination, number)), True
 
 
 def publish(staged, destination, expected, replace=False):
