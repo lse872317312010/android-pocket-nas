@@ -46,9 +46,27 @@ def simulate(root):
     bad.mkdir()
     (bad / "payload").write_bytes(b"truncated")
     (bad / "request.json").write_text(record)
-    scan(root)
+    assert scan(root).returncode == 1
     error = root / "receipts" / (bad.name + ".json")
-    assert json.loads(error.read_bytes()).get("error")
+    rejected = error.read_bytes()
+    assert "SHA-256 mismatch" in json.loads(rejected)["error"]
+    assert not bad.exists()
+    assert scan(root).returncode == 0
+
+    # Replay durable rejection states from an older worker or interrupted cleanup.
+    for entries in (("payload", "request.json"), ("request.json",), ()):
+        bad.mkdir()
+        for entry in entries:
+            (bad / entry).write_bytes(b"invalid")
+        assert scan(root).returncode == 0
+        assert not bad.exists() and error.read_bytes() == rejected
+
+    # A payload alone may still be in flight. Never claim or discard it here.
+    bad.mkdir()
+    (bad / "payload").write_bytes(b"unfinished")
+    assert scan(root).returncode == 0
+    assert (bad / "payload").read_bytes() == b"unfinished"
+    assert error.read_bytes() == rejected
     assert original.read_bytes() == b"original" and expected.read_bytes() == data
     assert set(original.parent.iterdir()) == {original, expected}
     print("PASS: readiness marker, publication replay, cleanup replay, rejection receipt")
