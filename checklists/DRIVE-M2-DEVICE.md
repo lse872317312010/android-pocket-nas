@@ -83,6 +83,12 @@ printf 'pocket-nas device probe\n' > "$DRIVE_TEST_ROOT/device-marker.txt"
 # Client / 客户端：set cfg and remote to actual config and remote path
 rclone --config "$cfg" lsf "$remote"
 rclone --config "$cfg" cat "$remote/device-marker.txt"
+# Client / 客户端
+probe="$(mktemp)"
+printf 'SFTP write probe\n' > "$probe"
+rclone --config "$cfg" copyto "$probe" "$remote/client-probe.txt"
+# Home / 家庭端
+cat "$DRIVE_TEST_ROOT/client-probe.txt"
 ```
 
 ### 4. 网盘提交 / Publish through the drive workflow
@@ -99,6 +105,12 @@ python3 scripts/drive_upload.py "$client_tmp/sample.zip" "$remote" --config "$cf
 python3 -m zipfile -c "$client_tmp/sample.zip" docs/ROADMAP.md
 sha256sum "$client_tmp/sample.zip"
 python3 scripts/drive_upload.py "$client_tmp/sample.zip" "$remote" --config "$cfg"
+```
+
+家庭端执行以下命令，比对上述首、末两次的哈希；相同内容重试应指向同一名称，异内容应有两个文件。 / On home compare the two client hashes with the published files. The repeat should return the same name, and the changed upload should leave two files.
+
+```sh
+find "$DRIVE_TEST_ROOT/files" -type f -exec sha256sum {} +
 ```
 
 ### 5. Redmi 原生入口与按需下载 / Redmi on-demand download

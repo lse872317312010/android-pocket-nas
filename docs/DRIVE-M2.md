@@ -13,9 +13,9 @@ Send one ordinary file from the primary to the home over real SFTP. The home ver
 
 ## 开发与验收约定 / Development agreement
 
-优先配置已有软件，出现可复现缺口才写薄适配；仿真测试、故障复现和可修复失败持续推进，Android 用户交互留到目标系统验收。Linux CI 结果、电脑到家庭机、两部 Android 手机三类证据分别记录。只有设备接入、系统授权、用户决定或可复现且无法绕过的技术限制才记录为阻塞。
+优先配置已有软件，出现可复现缺口才写薄适配；仿真测试、故障复现和可修复失败持续推进，Android 用户交互留到目标系统验收。Linux CI 结果、电脑到家庭机、两部 Android 手机三类证据分别记录。待真机验证的项目单独记录；同时继续所有可独立推进的软件工作。仅当这些工作全部完成，且下一步确实依赖真机反馈时才暂停，并写明需要哪台设备、哪项操作和哪条观测结果。
 
-Configure existing components first and write small adapters for reproducible gaps. Continue simulation, fault testing and recovery of fixable failures. Validate Android interactions on the target platform. Record Linux CI, desktop-to-home and Android-to-Android evidence separately. Record concrete blockers such as device access, system consent, user decisions or reproducible technical incompatibilities.
+Configure existing components first and write small adapters for reproducible gaps. Continue simulation, fault testing and recovery of fixable failures. Validate Android interactions on the target platform. Record Linux CI, desktop-to-home and Android-to-Android evidence separately. Track pending device checks while continuing every independent software task. Pause only after those tasks are exhausted and further progress requires physical-device feedback. Record the device, action and observation needed to resume.
 
 **通过条件 / Pass conditions.** 输入和发布内容的 SHA-256 相同；相同内容重试返回同一目标，异内容冲突不覆盖原件。只有经过家庭端确认才显示发布成功。中断、重复请求及客户端超时不应破坏原文件。无回执时将结果记录为未确认，检查家庭端状态后再判定。
 
