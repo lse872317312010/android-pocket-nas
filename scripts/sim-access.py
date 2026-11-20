@@ -12,11 +12,75 @@ import subprocess
 import tempfile
 import time
 import zipfile
+from unittest.mock import patch
+
+from drive_upload import upload
 
 
 def make_key(path):
     subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", path],
                    check=True)
+
+
+def check_aborted_attempts(server, client, config):
+    root = server / "abort-drive"
+    worker = [sys.executable, Path(__file__).with_name("drive_inbox.py"), root, "--once"]
+    subprocess.run(worker, check=True)
+    incoming = root / "incoming"
+    active = incoming / ("a" * 32)
+    active.mkdir()
+    (active / "payload").write_bytes(b"another transfer")
+    source = client / "interrupted.bin"
+    source.write_bytes(b"synthetic upload")
+    run = subprocess.run
+
+    # Perform each SFTP operation, then lose its acknowledgement on the client.
+    for action, filename in [("copyto", "payload"), ("copyto", "request.tmp"),
+                             ("moveto", "request.json")]:
+        def lose_reply(command, **kwargs):
+            result = run(command, **kwargs)
+            if action in command and command[-1].endswith("/" + filename):
+                assert result.returncode == 0, result.stderr
+                raise subprocess.TimeoutExpired(command, 20)
+            return result
+
+        with patch("drive_upload.subprocess.run", side_effect=lose_reply):
+            try:
+                upload(source, f"home:{root}", config, 20)
+            except subprocess.TimeoutExpired:
+                pass
+            else:
+                raise AssertionError("fault injection did not interrupt the client")
+        assert (active / "payload").read_bytes() == b"another transfer"
+        if action == "copyto":
+            assert set(incoming.iterdir()) == {active}, "aborted staging remains"
+        else:
+            job, = set(incoming.iterdir()) - {active}
+            assert (job / "request.json").is_file()
+            run(worker, check=True)
+            assert (root / "receipts" / (job.name + ".json")).is_file()
+            assert (root / "files" / source.name).read_bytes() == source.read_bytes()
+    # A disconnected client may lose both the copy reply and its cleanup path.
+    def disconnected(command, **kwargs):
+        if "purge" in command:
+            raise OSError("simulated connection loss during cleanup")
+        result = run(command, **kwargs)
+        if "copyto" in command:
+            assert result.returncode == 0
+            raise subprocess.TimeoutExpired(command, 20)
+        return result
+
+    with patch("drive_upload.subprocess.run", side_effect=disconnected):
+        try:
+            upload(source, f"home:{root}", config, 20)
+        except subprocess.TimeoutExpired:
+            pass
+        else:
+            raise AssertionError("cleanup masked the original transfer failure")
+    leftover, = set(incoming.iterdir()) - {active}
+    assert (leftover / "payload").is_file() and not (leftover / "request.json").exists()
+    assert (active / "payload").read_bytes() == b"another transfer"
+    print("PASS: pre-submit cleanup, independent active attempt and lost submission reply")
 
 
 def check_drive(server, client, rclone):
@@ -244,6 +308,7 @@ disable_hashcheck = true
                     raise RuntimeError(f"range mismatch at byte {start}")
                 print(f"offset={start} bytes={len(actual)} sha256={hashlib.sha256(actual).hexdigest()}")
             print("PASS: pinned host key, authenticated SFTP listing and four byte ranges")
+            check_aborted_attempts(server, client, rclone_conf)
             check_drive(server, client, rclone)
             check_interrupted_upload(server, client, rclone, command)
             check_receipts(server, client, rclone_conf, rclone)

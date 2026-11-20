@@ -60,14 +60,28 @@ def upload(source, remote_root, config, timeout, check_attempt=None):
         return result.stdout
 
     if check_attempt is None:
-        # The worker consumes request.json only. A failed payload transfer or
-        # partial request upload never advertises a ready-to-commit request.
-        rclone("copyto", "--", str(source), directory + "/payload")
-        with tempfile.TemporaryDirectory(prefix="pocket-nas-request-") as temp:
-            request = Path(temp) / "request.json"
-            request.write_text(json.dumps({"name": name, "sha256": expected}), encoding="utf-8")
-            rclone("copyto", "--", str(request), directory + "/request.tmp")
-            rclone("moveto", "--", directory + "/request.tmp", directory + "/request.json")
+        # Only the owner of a fresh attempt can know submission has not begun.
+        try:
+            rclone("copyto", "--", str(source), directory + "/payload")
+            with tempfile.TemporaryDirectory(prefix="pocket-nas-request-") as temp:
+                request = Path(temp) / "request.json"
+                request.write_text(json.dumps({"name": name, "sha256": expected}), encoding="utf-8")
+                rclone("copyto", "--", str(request), directory + "/request.tmp")
+        except (OSError, RuntimeError, subprocess.TimeoutExpired, KeyboardInterrupt):
+            # The transfer subprocess has exited. Use a short, separate deadline
+            # because the original timeout may have triggered this cleanup.
+            try:
+                result = subprocess.run([*command, "purge", "--", directory],
+                                        capture_output=True, timeout=5, stdin=subprocess.DEVNULL)
+                if result.returncode not in (0, 3, 4):
+                    print(f"Staging cleanup unconfirmed for {attempt} (rclone {result.returncode})",
+                          file=sys.stderr)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                print(f"Staging cleanup unconfirmed for {attempt}: {error}", file=sys.stderr)
+            raise
+
+        # Even a failed rename reply can mean request.json is already live.
+        rclone("moveto", "--", directory + "/request.tmp", directory + "/request.json")
 
     while True:
         raw = rclone("cat", "--head", "8193", "--", receipt, missing_ok=True)
