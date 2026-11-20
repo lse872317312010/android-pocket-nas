@@ -13,6 +13,8 @@ import tempfile
 import time
 import uuid
 
+from drive_names import numbered_pattern
+
 
 def remaining(deadline):
     seconds = deadline - time.monotonic()
@@ -79,10 +81,8 @@ def upload(source, remote_root, config, timeout):
             chosen = answer.get("name")
             if answer.get("sha256") != expected or not isinstance(chosen, str):
                 raise ValueError("Receipt digest or filename does not match upload")
-            if chosen != name:
-                numbered = re.escape(source.stem) + r" \((?:[2-9]|[1-9][0-9]+)\)" + re.escape(source.suffix)
-                if not re.fullmatch(numbered, chosen):
-                    raise ValueError("Unexpected destination filename in receipt")
+            if chosen != name and not re.fullmatch(numbered_pattern(source), chosen):
+                raise ValueError("Unexpected destination filename in receipt")
             return chosen
         time.sleep(min(0.5, remaining(deadline)))
 

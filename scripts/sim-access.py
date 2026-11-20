@@ -2,6 +2,7 @@
 """Exercise a temporary rclone SFTP client and loopback OpenSSH home node."""
 import pwd
 import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -144,6 +145,46 @@ def check_receipts(server, client, config, rclone):
         worker.wait(timeout=5)
 
 
+def check_existing_number_one(server, client, config):
+    root = server / "preexisting-drive"
+    scripts = Path(__file__).resolve().parent
+    worker = [sys.executable, scripts / "drive_inbox.py", root]
+    subprocess.run([*worker, "--once"], check=True)
+    source = client / "归档[1].tar.gz"
+    source.write_bytes(b"existing content")
+    canonical = root / "files" / source.name
+    canonical.write_bytes(b"original")
+    existing = canonical.with_name(f"{canonical.stem} (1){canonical.suffix}")
+    existing.write_bytes(source.read_bytes())
+    daemon = subprocess.Popen([*worker, "--interval", "0.1"])
+    try:
+        result = subprocess.run([sys.executable, scripts / "drive_upload.py", source,
+                                 f"home:{root}", "--config", config, "--timeout", "20"],
+                                capture_output=True, text=True, timeout=30)
+        if result.returncode or result.stdout.strip() != existing.name:
+            raise RuntimeError(f"existing (1) receipt failed: {result}")
+    finally:
+        daemon.terminate()
+        daemon.wait(timeout=5)
+
+    # Replay the submitted request after the worker wrote its receipt.
+    receipt, = (root / "receipts").glob("*.json")
+    job = root / "incoming" / receipt.stem
+    job.mkdir(exist_ok=True)
+    (job / "payload").write_bytes(source.read_bytes())
+    (job / "request.json").write_text(json.dumps({
+        "name": source.name, "sha256": hashlib.sha256(source.read_bytes()).hexdigest()
+    }))
+    prior = receipt.read_bytes()
+    subprocess.run([*worker, "--once"], check=True)
+    if job.exists() or receipt.read_bytes() != prior:
+        raise RuntimeError("worker failed to reconcile the existing (1) receipt")
+    if (set(canonical.parent.iterdir()) != {canonical, existing} or
+            canonical.read_bytes() != b"original" or existing.read_bytes() != source.read_bytes()):
+        raise RuntimeError("reusing (1) changed published files")
+    print("PASS: existing (1) over SFTP and restart with a persisted receipt")
+
+
 def simulate(root):
     server = root / "home-node"
     client = root / "primary-phone"
@@ -226,6 +267,7 @@ disable_hashcheck = true
             check_drive(server, client, rclone)
             check_interrupted_upload(server, client, rclone, command)
             check_receipts(server, client, rclone_conf, rclone)
+            check_existing_number_one(server, client, rclone_conf)
         except Exception:
             log.flush()
             log.seek(0)

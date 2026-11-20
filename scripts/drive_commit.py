@@ -20,6 +20,8 @@ import re
 import sys
 import tempfile
 
+from drive_names import numbered_pattern
+
 
 def copy_digest(source, output=None):
     digest = hashlib.sha256()
@@ -47,7 +49,7 @@ def select_destination(destination, expected, replace):
 
     stem = destination.stem
     suffix = destination.suffix
-    pattern = re.compile(re.escape(stem) + r" \(([1-9][0-9]*)\)" + re.escape(suffix))
+    pattern = re.compile(numbered_pattern(destination))
     numbered = {}
     for path in destination.parent.iterdir():
         match = pattern.fullmatch(path.name)
