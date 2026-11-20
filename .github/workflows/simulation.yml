@@ -15,6 +15,12 @@ jobs:
           sudo install -d -m 0755 /run/sshd
       - name: Exercise simulated endpoints
         run: python3 simulation/run.py --report simulation-report.json
+      - name: Test a full destination volume
+        run: |
+          volume=$(mktemp -d)
+          sudo mount -t tmpfs -o "size=2m,mode=0700,uid=$(id -u)" tmpfs "$volume"
+          trap 'sudo umount "$volume" && rmdir "$volume"' EXIT
+          python3 scripts/sim-drive-faults.py --full-volume "$volume"
       - name: Preserve scenario results
         if: always()
         uses: actions/upload-artifact@v4
