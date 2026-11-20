@@ -75,6 +75,17 @@ def write_receipt(path, record):
         os.fsync(fd)
 
 
+def cleanup_job(job, receipt):
+    # Always establish receipt durability before removing either staging object.
+    with directory(receipt.parent) as receipts_fd:
+        os.fsync(receipts_fd)
+    (job / "payload").unlink(missing_ok=True)
+    (job / "request.json").unlink(missing_ok=True)
+    job.rmdir()
+    with directory(job.parent) as incoming_fd:
+        os.fsync(incoming_fd)
+
+
 def process_job(root, job):
     receipt = root / "receipts" / (job.name + ".json")
     request = job / "request.json"
@@ -82,7 +93,9 @@ def process_job(root, job):
     if os.path.lexists(receipt):
         record = read_json(receipt)
         if isinstance(record, dict) and set(record) == {"error"} and isinstance(record["error"], str):
-            raise ValueError(record["error"])
+            if os.path.lexists(request) or not os.path.lexists(payload):
+                cleanup_job(job, receipt)
+            return
         actual_name, digest = validate_record(record)
         if os.path.lexists(request):
             requested, expected = validate_record(read_json(request))
@@ -101,6 +114,7 @@ def process_job(root, job):
             target = publish(payload, root / "files" / name, digest)
         except (ValueError, RecursionError) as error:
             write_receipt(receipt, {"error": str(error)})
+            cleanup_job(job, receipt)
             raise
         # A retry may reuse an object linked immediately before a previous crash.
         with directory(target.parent) as files_fd:
@@ -109,14 +123,7 @@ def process_job(root, job):
     else:
         return
 
-    # Always establish receipt durability before removing either staging object.
-    with directory(receipt.parent) as receipts_fd:
-        os.fsync(receipts_fd)
-    payload.unlink(missing_ok=True)
-    request.unlink(missing_ok=True)
-    job.rmdir()
-    with directory(job.parent) as incoming_fd:
-        os.fsync(incoming_fd)
+    cleanup_job(job, receipt)
 
 
 def scan(root):

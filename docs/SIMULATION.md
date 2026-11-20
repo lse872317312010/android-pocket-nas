@@ -27,3 +27,9 @@ python3 simulation/run.py --report simulation-report.json
 字节范围读取用于验证寻址正确性。播放器解码、实际网络流量、SAF 应用兼容性、Android 存储隔离、跨公网 VPN、后台保活和温控需要独立测试。同机独立目录可演练恢复流程，实际备份还需位于独立故障域。
 
 Range reads verify addressing. Decoder behavior, wire traffic, SAF compatibility, Android storage isolation, WAN VPN, background operation and thermal behavior require separate tests. The recovery drill uses a separate local directory; production backups need an independent failure domain.
+
+### 拒绝上传后的恢复 / Recovery after a rejected upload
+
+运行 `python3 simulation/run.py --scenario inbox`。使用损坏的暂存内容触发摘要不符。首次单次扫描返回 1，家庭端保留拒绝原因的回执，并清理该次提交的暂存文件。再次扫描返回 0。仿真还重建清理中断前后的三种目录状态，检查已有回执逐字节相同、已发布文件保持完整。只有载荷而没有提交标记的目录可能仍在写入，扫描器会保留它。
+
+Run `python3 simulation/run.py --scenario inbox`. A truncated payload triggers a digest mismatch. The first one-shot scan exits 1, retains the rejection receipt and removes that submitted attempt's staging files. The next scan exits 0. The scenario also reconstructs three states around interrupted cleanup and checks the receipt bytes and published files. A payload without a request marker may still be in flight and is left in place.
