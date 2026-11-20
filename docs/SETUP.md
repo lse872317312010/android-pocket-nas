@@ -1,4 +1,24 @@
-# Setup runbook — no root baseline
+# 无 Root 部署指南 / Setup runbook — no root baseline
+
+## 中文部署步骤
+
+先确认两部手机的型号与系统版本，从官方渠道更新应用。重要数据另做备份，首次测试使用同一 Wi-Fi 和不含私人数据的目录。
+
+1. **局域网 SFTP**：在 1 TB 手机上安装 SshDaemon 或选定的备选组件，授予必要的共享存储权限，配置认证与端口，仅在局域网或私有 VPN 使用。客户端连接家庭手机的 Wi-Fi 地址，在临时目录测试列目录、读写、重命名和删除，并单独验证越界访问被拒绝。息屏 30、60 分钟后分别复测。
+2. **主力机按需访问**：在 256 GB 手机上安装 RSAF，按实际版本说明配置 rclone SFTP 后端。在两到三个常用应用中打开系统文件选择器，验证浏览、预览和写入。用大视频测试跳转，观察下载量和缓存占用。
+3. **指定目录同步**：两机安装 Syncthing-Fork，通过设备 ID 或二维码配对。相机接收、双向工作目录、离线热文件分别配置。为重要文件设置独立版本备份或快照，验证离线打开和误删恢复。
+4. **异地访问**：两机加入同一私有 Tailscale 网络，RSAF 使用服务端私网地址或名称。关闭主力机 Wi-Fi，以移动网络测试访问与视频跳转延迟。开启 Clash VPN 时须验证并记录可用配置。
+5. **无人值守**：按系统支持情况配置自启动、前台服务、后台电池策略及充电保护，保持通风。进行 72 小时息屏运行、Wi-Fi 中断及有人看护的重启恢复演练。记录可用性、功耗、温度、恢复文件的大小和哈希，以及故障次数。
+
+### 可重复的 M1 传输测试
+
+在装有 OpenSSH 客户端及 SFTP 服务端子系统的 Ubuntu 或 WSL 环境中运行 `bash scripts/check-sftp.sh --local`。CI 使用此模式验证协议操作。
+
+测试家庭手机时，在私有 SSH 配置中设置别名、地址、端口、用户和密钥。先与服务端核对主机密钥，再保存至 known_hosts。账户起始目录须可写，至少预留 100 MB。运行 `bash scripts/check-sftp.sh pocket-nas`（替换为实际别名）。脚本上传 100 MB 随机文件，重命名、列出、下载、删除远端测试目录，最后核对 SHA-256 和逐字节内容。若中断，核对终端打印的目录名后手动清理该次测试目录。
+
+分别记录 CI 和真机结果。文件选择器兼容性与目录权限隔离另行验证。公开日志和提交须移除密码、私钥、私网身份、家庭 IP、照片及恢复资料。
+
+## English
 
 **Prerequisites:** confirm target hardware/OS, update apps from official repositories, keep a separate backup of important data, and test first on Wi-Fi with a non-sensitive sample folder.
 

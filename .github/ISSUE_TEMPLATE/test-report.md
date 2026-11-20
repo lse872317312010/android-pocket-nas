@@ -1,21 +1,21 @@
 ---
-name: Device test report
-about: Document one physical-device integration test without overstating validation
+name: 真机测试报告 / Device test report
+about: 记录一次真机集成测试及实际结果 / Document one physical-device integration test without overstating validation
 title: "test: "
 labels: []
 assignees: []
 ---
 
-## Device / firmware / app versions
+## 设备、固件和应用版本 / Device / firmware / app versions
 
-## Network and power conditions
+## 网络与供电条件 / Network and power conditions
 
-## Steps to reproduce
+## 复现步骤 / Steps to reproduce
 
-## Expected outcome
+## 预期结果 / Expected outcome
 
-## Actual outcome
+## 实际结果 / Actual outcome
 
-## Evidence (redacted)
+## 证据（已脱敏） / Evidence (redacted)
 
-## Risk / next action
+## 风险与下一步 / Risk / next action
