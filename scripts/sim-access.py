@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import shutil
 import socket
+import sys
 import subprocess
 import tempfile
 import time
@@ -75,6 +76,44 @@ def check_drive(server, client, rclone):
     verify(rclone("cat", destination), replacement, "default copy replaces changed-size ZIP")
 
 
+def check_interrupted_upload(server, client, rclone, command):
+    target = server / "payload"
+    target.write_bytes(b"previous version")
+    source = client / "payload"
+    source.write_bytes(os.urandom(2 * 1024 * 1024))
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    staging = server / "incoming"
+    staging.mkdir()
+    partial = staging / "transfer-1"
+    remote = f"home:{partial}"
+    # Terminate the actual uploading process after observing bytes on the server.
+    with subprocess.Popen([*command, "copyto", "--bwlimit", "256k", source, remote],
+                          cwd=client) as uploader:
+        try:
+            deadline = time.monotonic() + 15
+            while time.monotonic() < deadline:
+                if any(0 < f.stat().st_size < source.stat().st_size for f in staging.iterdir()):
+                    break
+                if uploader.poll() is not None:
+                    raise RuntimeError("upload finished before interruption")
+                time.sleep(0.025)
+            else:
+                raise RuntimeError("no partial SFTP write observed")
+        finally:
+            uploader.kill()
+            uploader.wait()
+    if target.read_bytes() != b"previous version":
+        raise RuntimeError("interrupted upload modified the published object")
+    # Retry into a fresh private staging name; validate before publication.
+    retry = staging / "transfer-2"
+    rclone("copyto", source, f"home:{retry}")
+    subprocess.run([sys.executable, Path(__file__).with_name("drive_commit.py"),
+                    retry, target, digest, "--replace"], check=True)
+    if rclone("cat", f"home:{target}") != source.read_bytes():
+        raise RuntimeError("download after verified replacement differs")
+    print("PASS: interrupted SFTP upload preserved original; verified retry published")
+
+
 def simulate(root):
     server = root / "home-node"
     client = root / "primary-phone"
@@ -119,9 +158,10 @@ shell_type = none
 disable_hashcheck = true
 """)
 
+    command = ["rclone", "--config", rclone_conf, "--retries", "1", "--low-level-retries", "1"]
+
     def rclone(*args):
-        return subprocess.run(["rclone", "--config", rclone_conf, "--retries", "1",
-                               "--low-level-retries", "1", *args],
+        return subprocess.run([*command, *args],
                               cwd=client, check=True, stdout=subprocess.PIPE,
                               timeout=30).stdout
 
@@ -154,6 +194,7 @@ disable_hashcheck = true
                 print(f"offset={start} bytes={len(actual)} sha256={hashlib.sha256(actual).hexdigest()}")
             print("PASS: pinned host key, authenticated SFTP listing and four byte ranges")
             check_drive(server, client, rclone)
+            check_interrupted_upload(server, client, rclone, command)
         except Exception:
             log.flush()
             log.seek(0)
