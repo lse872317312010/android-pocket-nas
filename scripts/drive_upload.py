@@ -21,11 +21,13 @@ def remaining(deadline):
     return seconds
 
 
-def upload(source, remote_root, config, timeout):
+def upload(source, remote_root, config, timeout, check_attempt=None):
     if not source.is_file() or source.is_symlink():
         raise ValueError("Source must be a regular file")
     if not remote_root:
         raise ValueError("Specify an rclone remote root")
+    if check_attempt is not None and not re.fullmatch(r"[0-9a-f]{32}", check_attempt):
+        raise ValueError("Expected a 32-character lowercase hex upload attempt ID")
     name = source.name
     if "\\" in name or any(ord(c) < 32 or ord(c) == 127 for c in name):
         raise ValueError("Choose a filename without control characters or backslashes")
@@ -39,7 +41,7 @@ def upload(source, remote_root, config, timeout):
     expected = digest.hexdigest()
 
     base = remote_root if remote_root.endswith((":", "/")) else remote_root + "/"
-    attempt = uuid.uuid4().hex
+    attempt = check_attempt or uuid.uuid4().hex
     directory = f"{base}incoming/{attempt}"
     receipt = f"{base}receipts/{attempt}.json"
     print(f"Upload attempt: {attempt}", file=sys.stderr, flush=True)
@@ -57,14 +59,15 @@ def upload(source, remote_root, config, timeout):
             raise RuntimeError(f"rclone {action} exited {result.returncode}: {detail}")
         return result.stdout
 
-    # The worker consumes request.json only. A failed payload transfer or
-    # partial request upload never advertises a ready-to-commit request.
-    rclone("copyto", "--", str(source), directory + "/payload")
-    with tempfile.TemporaryDirectory(prefix="pocket-nas-request-") as temp:
-        request = Path(temp) / "request.json"
-        request.write_text(json.dumps({"name": name, "sha256": expected}), encoding="utf-8")
-        rclone("copyto", "--", str(request), directory + "/request.tmp")
-        rclone("moveto", "--", directory + "/request.tmp", directory + "/request.json")
+    if check_attempt is None:
+        # The worker consumes request.json only. A failed payload transfer or
+        # partial request upload never advertises a ready-to-commit request.
+        rclone("copyto", "--", str(source), directory + "/payload")
+        with tempfile.TemporaryDirectory(prefix="pocket-nas-request-") as temp:
+            request = Path(temp) / "request.json"
+            request.write_text(json.dumps({"name": name, "sha256": expected}), encoding="utf-8")
+            rclone("copyto", "--", str(request), directory + "/request.tmp")
+            rclone("moveto", "--", directory + "/request.tmp", directory + "/request.json")
 
     while True:
         raw = rclone("cat", "--head", "8193", "--", receipt, missing_ok=True)
@@ -95,11 +98,13 @@ def main():
     parser.add_argument("--config", type=Path, help="private rclone configuration")
     parser.add_argument("--timeout", type=float, default=300, metavar="SECONDS",
                         help="total time allowed for hashing, transfer, and receipt (default: 300)")
+    parser.add_argument("--check-attempt", metavar="ID",
+                        help="only wait for an existing receipt and verify it against SOURCE")
     args = parser.parse_args()
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error("--timeout must be finite and positive")
     try:
-        print(upload(args.source, args.remote_root, args.config, args.timeout))
+        print(upload(args.source, args.remote_root, args.config, args.timeout, args.check_attempt))
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         print(error, file=sys.stderr)
         return 1
