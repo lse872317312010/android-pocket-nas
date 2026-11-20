@@ -114,6 +114,36 @@ def check_interrupted_upload(server, client, rclone, command):
     print("PASS: interrupted SFTP upload preserved original; verified retry published")
 
 
+def check_receipts(server, client, config, rclone):
+    scripts = Path(__file__).resolve().parent
+    root = server / "drive"
+    source = client / "游戏 包.zip"
+    published = root / "files"
+    worker = subprocess.Popen([sys.executable, scripts / "drive_inbox.py", root,
+                               "--interval", "0.1"])
+    try:
+        for data, expected in [(b"first", source.name), (b"first", source.name),
+                               (b"other", "游戏 包 (2).zip")]:
+            source.write_bytes(data)
+            result = subprocess.run([sys.executable, scripts / "drive_upload.py",
+                                     source, f"home:{root}", "--config", config,
+                                     "--timeout", "20"], capture_output=True, text=True,
+                                    timeout=35)
+            if result.returncode or result.stdout.strip() != expected:
+                raise RuntimeError(f"unexpected upload result: {result}")
+            if rclone("cat", f"home:{published}/{expected}") != data:
+                raise RuntimeError("receipt does not match downloaded bytes")
+        deadline = time.monotonic() + 5
+        while any((root / "incoming").iterdir()) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        if any((root / "incoming").iterdir()) or len(list(published.iterdir())) != 2:
+            raise RuntimeError("unexpected staging or published files after receipt")
+        print("PASS: one-command SFTP upload, receipts, retry, collision and cleanup")
+    finally:
+        worker.terminate()
+        worker.wait(timeout=5)
+
+
 def simulate(root):
     server = root / "home-node"
     client = root / "primary-phone"
@@ -195,6 +225,7 @@ disable_hashcheck = true
             print("PASS: pinned host key, authenticated SFTP listing and four byte ranges")
             check_drive(server, client, rclone)
             check_interrupted_upload(server, client, rclone, command)
+            check_receipts(server, client, rclone_conf, rclone)
         except Exception:
             log.flush()
             log.seek(0)

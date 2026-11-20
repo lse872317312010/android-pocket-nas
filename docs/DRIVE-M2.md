@@ -1,0 +1,28 @@
+# 网盘 M2：从上传到回执 / Drive M2: upload through receipt
+
+**交付边界 / Deliverable.** 用真实 SFTP 将单个普通文件从主力端上传到家庭端，家庭端校验、处理重名并发布，客户端得到结果。初版以命令行复现；文件管理器能否把上传动作直接交给该流程是单独的集成项。
+
+Send one ordinary file from the primary to the home over real SFTP. The home verifies and publishes it with collision handling, then the client receives the result. The CLI provides the reproducible entry point. A file manager's ability to initiate this workflow requires separate integration testing.
+
+| 职责 / Role | 入口 / Entry point |
+|---|---|
+| 家庭端 / Home | `python3 scripts/drive_inbox.py ROOT`。提供家庭端可访问的专用测试根目录。 / Supply a dedicated test root writable by the home process. |
+| 主力端或替身 / Primary or desktop stand-in | `python3 scripts/drive_upload.py SOURCE REMOTE_ROOT --config PATH`。REMOTE_ROOT 采用已配置的 rclone SFTP 远端路径，映射同一个测试根目录。 / Use the configured rclone SFTP path to the same test root. |
+| 数据传输 / Transport | OpenSSH SFTP + rclone；身份、端口、监听与可信主机密钥按实际测试环境配置。 / Configure credentials, port, listener and verified host key for the actual test deployment. |
+| 发布 / Publication | 家庭端复用 M1 提交程序；目标文件系统、进程权限与锁协作必须实测。 / Home reuses the M1 publisher. Verify filesystem capabilities, process permissions and lock cooperation. |
+
+## 开发与验收约定 / Development agreement
+
+优先配置已有软件，出现可复现缺口才写薄适配；仿真测试、故障复现和可修复失败持续推进，Android 用户交互留到目标系统验收。Linux CI 结果、电脑到家庭机、两部 Android 手机三类证据分别记录。只有设备接入、系统授权、用户决定或可复现且无法绕过的技术限制才记录为阻塞。
+
+Configure existing components first and write small adapters for reproducible gaps. Continue simulation, fault testing and recovery of fixable failures. Validate Android interactions on the target platform. Record Linux CI, desktop-to-home and Android-to-Android evidence separately. Record concrete blockers such as device access, system consent, user decisions or reproducible technical incompatibilities.
+
+**通过条件 / Pass conditions.** 输入和发布内容的 SHA-256 相同；相同内容重试返回同一目标，异内容冲突不覆盖原件。只有经过家庭端确认才显示发布成功。中断、重复请求及客户端超时不应破坏原文件。无回执时将结果记录为未确认，检查家庭端状态后再判定。
+
+Input and published SHA-256 values match. Identical-content retries return the same target and distinct collisions preserve the original. Success requires home-side confirmation. Interruptions, repeats and client timeouts must preserve the original. Record missing receipts as unconfirmed and reconcile against home state.
+
+## 真机阻塞和证据 / Device dependencies and evidence
+
+查看[首次真机清单](../checklists/DRIVE-M2-DEVICE.md)。需要能运行提交进程的家庭端、SFTP 服务与提交进程共同可访问的目录、以及该目录对锁/硬链接/fsync/重命名的支持。仅能通过 URI 访问的存储需要原生接口适配或改用通过探针的目录。原生文件管理器或 SAF 的兼容性、后台与机型性能分别以实测为准。使用用户数据之前先在专用目录验证。
+
+Use the [first-device checklist](../checklists/DRIVE-M2-DEVICE.md). The home must run the publisher and expose a directory shared with the SFTP service whose lock, hard-link, fsync and rename behavior passes the probe. URI-only storage requires an adapter or a tested alternative directory. Qualify native file manager/SAF, background behavior and device performance independently. Use a dedicated directory for first-device validation.
