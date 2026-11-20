@@ -110,5 +110,5 @@ disable_hashcheck = true
 
 
 if __name__ == "__main__":
-    with tempfile.TemporaryDirectory(prefix="pocket-nas-access-") as temp:
+    with tempfile.TemporaryDirectory(prefix=".pocket-nas-access-", dir=Path.home()) as temp:
         simulate(Path(temp))
