@@ -7,6 +7,7 @@ The home role represents the 1 TB storage phone and the primary role the 256 GB 
 | 场景 / Scenario | 操作与判据 / Operations and pass criteria |
 |---|---|
 | access | rclone 经 SSH 密钥认证连接 OpenSSH，核对主机密钥、目录内容及四处读取的数据，覆盖前跳、回跳与文件末尾。 / rclone uses authenticated SFTP with a pinned host key. The listing must include the fixture and four reads must match the reference bytes, including forward, backward and end-of-file reads. |
+| permissions | 收件箱可写；文件和回执可读，并拒绝远端创建、覆盖、改名与删除。 / Upload through the writable inbox and verify read-only publication and receipts. [双端配置 / Export configuration](SFTP-EXPORTS.md) |
 | sync | 两个 Syncthing 实例同步相机样本与热文件。家庭端停止时读热文件；重启后观察源端误删传播，再从同步目录外的副本恢复并核对内容。 / Two Syncthing instances transfer a camera sample and a hot document. Read the cached document while home is stopped, reconnect after source deletion, observe deletion propagation, then restore and verify the independent copy. |
 
 ## 运行 / Run
