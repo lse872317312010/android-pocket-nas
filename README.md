@@ -90,6 +90,8 @@ flowchart TD
 5. [Acceptance matrix](checklists/ACCEPTANCE.md)
 6. [Roadmap](docs/ROADMAP.md)
 7. [Personal OS integration contract](docs/PERSONAL_OS_ADAPTER.md)
+8. [可靠上传与回执 / Reliable upload and receipts](docs/DRIVE-M2.md)
+9. [首次真机验收 / First device checks](checklists/DRIVE-M2-DEVICE.md)
 
 ## Review decisions
 

@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCENARIOS = {
     "access": [sys.executable, "scripts/sim-access.py"],
     "drive": [sys.executable, "scripts/sim-drive-faults.py"],
+    "inbox": [sys.executable, "scripts/sim-inbox.py"],
     "sync": [sys.executable, "scripts/sim-sync.py"],
 }
 
