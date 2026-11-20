@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import xml.etree.ElementTree as ET
@@ -125,21 +126,40 @@ def simulate(base):
         wait_until("camera upload and hot-file download",
                    lambda: matches(received, photo) and matches(offline, document),
                    [home_proc, primary_proc])
-        backup = base / "independent-backup/sample.bin"
-        backup.parent.mkdir()
-        shutil.copyfile(received, backup)
+        vault = base / "independent-backup"
+        vault.mkdir()
+        backup = [sys.executable, Path(__file__).with_name("backup_camera.py"), received.parent, vault]
+        subprocess.run(backup, check=True)
+        captures = []
+        middle = b"B" * len(photo)
+        final = b"C" * len(photo)
+        for index, revision in enumerate((middle, final), start=1):
+            source.write_bytes(revision)
+            # Distinct mtimes allow Syncthing to discover equal-size revisions.
+            stamp = int(time.time()) + 10 * index
+            os.utime(source, (stamp, stamp))
+            wait_until("same-name camera overwrite", lambda: matches(received, revision),
+                       [home_proc, primary_proc])
+            result = subprocess.run(backup, check=True, capture_output=True, text=True)
+            captures.append(Path(result.stdout.strip()) / source.name)
+        assert matches(vault / "current" / source.name, final)
+        assert matches(captures[0], photo)
+        assert matches(captures[1], middle)
         stop(home_proc)
         assert matches(offline, document), "Offline hot file unavailable"
         source.unlink()
         home_proc = start(home)
         wait_until("camera deletion propagation after reconnect",
                    lambda: not received.exists(), [home_proc, primary_proc])
+        subprocess.run(backup, check=True)
+        assert matches(vault / "current" / source.name, final)
+        assert len(list((vault / "history").iterdir())) == 2
         restored = base / "recovery/sample.bin"
         restored.parent.mkdir()
-        shutil.copyfile(backup, restored)
-        if not matches(restored, photo):
+        shutil.copyfile(captures[1], restored)
+        if hashlib.sha256(restored.read_bytes()).digest() != hashlib.sha256(middle).digest():
             raise RuntimeError("Recovered photo differs from original")
-        print("PASS camera upload, offline hot read, reconnect, propagated deletion, independent restore")
+        print("PASS three camera versions, offline hot read, propagated deletion and middle-version restore")
         print("Recovered SHA-256:", hashlib.sha256(restored.read_bytes()).hexdigest())
     except BaseException:
         for node in nodes:
