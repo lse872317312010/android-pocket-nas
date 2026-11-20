@@ -13,6 +13,8 @@ import tempfile
 import time
 import uuid
 
+from drive_names import copy_number
+
 
 def remaining(deadline):
     seconds = deadline - time.monotonic()
@@ -21,11 +23,13 @@ def remaining(deadline):
     return seconds
 
 
-def upload(source, remote_root, config, timeout):
+def upload(source, remote_root, config, timeout, check_attempt=None):
     if not source.is_file() or source.is_symlink():
         raise ValueError("Source must be a regular file")
     if not remote_root:
         raise ValueError("Specify an rclone remote root")
+    if check_attempt is not None and not re.fullmatch(r"[0-9a-f]{32}", check_attempt):
+        raise ValueError("Expected a 32-character lowercase hex upload attempt ID")
     name = source.name
     if "\\" in name or any(ord(c) < 32 or ord(c) == 127 for c in name):
         raise ValueError("Choose a filename without control characters or backslashes")
@@ -39,7 +43,7 @@ def upload(source, remote_root, config, timeout):
     expected = digest.hexdigest()
 
     base = remote_root if remote_root.endswith((":", "/")) else remote_root + "/"
-    attempt = uuid.uuid4().hex
+    attempt = check_attempt or uuid.uuid4().hex
     directory = f"{base}incoming/{attempt}"
     receipt = f"{base}receipts/{attempt}.json"
     print(f"Upload attempt: {attempt}", file=sys.stderr, flush=True)
@@ -57,13 +61,28 @@ def upload(source, remote_root, config, timeout):
             raise RuntimeError(f"rclone {action} exited {result.returncode}: {detail}")
         return result.stdout
 
-    # The worker consumes request.json only. A failed payload transfer or
-    # partial request upload never advertises a ready-to-commit request.
-    rclone("copyto", "--", str(source), directory + "/payload")
-    with tempfile.TemporaryDirectory(prefix="pocket-nas-request-") as temp:
-        request = Path(temp) / "request.json"
-        request.write_text(json.dumps({"name": name, "sha256": expected}), encoding="utf-8")
-        rclone("copyto", "--", str(request), directory + "/request.tmp")
+    if check_attempt is None:
+        # Only the owner of a fresh attempt can know submission has not begun.
+        try:
+            rclone("copyto", "--", str(source), directory + "/payload")
+            with tempfile.TemporaryDirectory(prefix="pocket-nas-request-") as temp:
+                request = Path(temp) / "request.json"
+                request.write_text(json.dumps({"name": name, "sha256": expected}), encoding="utf-8")
+                rclone("copyto", "--", str(request), directory + "/request.tmp")
+        except (OSError, RuntimeError, subprocess.TimeoutExpired, KeyboardInterrupt):
+            # The transfer subprocess has exited. Use a short, separate deadline
+            # because the original timeout may have triggered this cleanup.
+            try:
+                result = subprocess.run([*command, "purge", "--", directory],
+                                        capture_output=True, timeout=5, stdin=subprocess.DEVNULL)
+                if result.returncode not in (0, 3, 4):
+                    print(f"Staging cleanup unconfirmed for {attempt} (rclone {result.returncode})",
+                          file=sys.stderr)
+            except (OSError, subprocess.TimeoutExpired) as error:
+                print(f"Staging cleanup unconfirmed for {attempt}: {error}", file=sys.stderr)
+            raise
+
+        # Even a failed rename reply can mean request.json is already live.
         rclone("moveto", "--", directory + "/request.tmp", directory + "/request.json")
 
     while True:
@@ -79,10 +98,8 @@ def upload(source, remote_root, config, timeout):
             chosen = answer.get("name")
             if answer.get("sha256") != expected or not isinstance(chosen, str):
                 raise ValueError("Receipt digest or filename does not match upload")
-            if chosen != name:
-                numbered = re.escape(source.stem) + r" \((?:[2-9]|[1-9][0-9]+)\)" + re.escape(source.suffix)
-                if not re.fullmatch(numbered, chosen):
-                    raise ValueError("Unexpected destination filename in receipt")
+            if chosen != name and copy_number(source, chosen) is None:
+                raise ValueError("Unexpected destination filename in receipt")
             return chosen
         time.sleep(min(0.5, remaining(deadline)))
 
@@ -95,11 +112,13 @@ def main():
     parser.add_argument("--config", type=Path, help="private rclone configuration")
     parser.add_argument("--timeout", type=float, default=300, metavar="SECONDS",
                         help="total time allowed for hashing, transfer, and receipt (default: 300)")
+    parser.add_argument("--check-attempt", metavar="ID",
+                        help="only wait for an existing receipt and verify it against SOURCE")
     args = parser.parse_args()
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error("--timeout must be finite and positive")
     try:
-        print(upload(args.source, args.remote_root, args.config, args.timeout))
+        print(upload(args.source, args.remote_root, args.config, args.timeout, args.check_attempt))
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as error:
         print(error, file=sys.stderr)
         return 1

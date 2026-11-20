@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Exercise a temporary rclone SFTP client and loopback OpenSSH home node."""
+import re
 import pwd
 import hashlib
+import json
 import os
 from pathlib import Path
 import shutil
@@ -11,11 +13,75 @@ import subprocess
 import tempfile
 import time
 import zipfile
+from unittest.mock import patch
+
+from drive_upload import upload
 
 
 def make_key(path):
     subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", path],
                    check=True)
+
+
+def check_aborted_attempts(server, client, config):
+    root = server / "abort-drive"
+    worker = [sys.executable, Path(__file__).with_name("drive_inbox.py"), root, "--once"]
+    subprocess.run(worker, check=True)
+    incoming = root / "incoming"
+    active = incoming / ("a" * 32)
+    active.mkdir()
+    (active / "payload").write_bytes(b"another transfer")
+    source = client / "interrupted.bin"
+    source.write_bytes(b"synthetic upload")
+    run = subprocess.run
+
+    # Perform each SFTP operation, then lose its acknowledgement on the client.
+    for action, filename in [("copyto", "payload"), ("copyto", "request.tmp"),
+                             ("moveto", "request.json")]:
+        def lose_reply(command, **kwargs):
+            result = run(command, **kwargs)
+            if action in command and command[-1].endswith("/" + filename):
+                assert result.returncode == 0, result.stderr
+                raise subprocess.TimeoutExpired(command, 20)
+            return result
+
+        with patch("drive_upload.subprocess.run", side_effect=lose_reply):
+            try:
+                upload(source, f"home:{root}", config, 20)
+            except subprocess.TimeoutExpired:
+                pass
+            else:
+                raise AssertionError("fault injection did not interrupt the client")
+        assert (active / "payload").read_bytes() == b"another transfer"
+        if action == "copyto":
+            assert set(incoming.iterdir()) == {active}, "aborted staging remains"
+        else:
+            job, = set(incoming.iterdir()) - {active}
+            assert (job / "request.json").is_file()
+            run(worker, check=True)
+            assert (root / "receipts" / (job.name + ".json")).is_file()
+            assert (root / "files" / source.name).read_bytes() == source.read_bytes()
+    # A disconnected client may lose both the copy reply and its cleanup path.
+    def disconnected(command, **kwargs):
+        if "purge" in command:
+            raise OSError("simulated connection loss during cleanup")
+        result = run(command, **kwargs)
+        if "copyto" in command:
+            assert result.returncode == 0
+            raise subprocess.TimeoutExpired(command, 20)
+        return result
+
+    with patch("drive_upload.subprocess.run", side_effect=disconnected):
+        try:
+            upload(source, f"home:{root}", config, 20)
+        except subprocess.TimeoutExpired:
+            pass
+        else:
+            raise AssertionError("cleanup masked the original transfer failure")
+    leftover, = set(incoming.iterdir()) - {active}
+    assert (leftover / "payload").is_file() and not (leftover / "request.json").exists()
+    assert (active / "payload").read_bytes() == b"another transfer"
+    print("PASS: pre-submit cleanup, independent active attempt and lost submission reply")
 
 
 def check_drive(server, client, rclone):
@@ -133,6 +199,26 @@ def check_receipts(server, client, config, rclone):
                 raise RuntimeError(f"unexpected upload result: {result}")
             if rclone("cat", f"home:{published}/{expected}") != data:
                 raise RuntimeError("receipt does not match downloaded bytes")
+        attempt = re.search(r"^Upload attempt: ([0-9a-f]{32})$", result.stderr, re.MULTILINE)[1]
+        receipts = set((root / "receipts").iterdir())
+        check = [sys.executable, scripts / "drive_upload.py", source, f"home:{root}",
+                 "--config", config, "--timeout", "10", "--check-attempt", attempt]
+        # Discard the previous stdout, as if the client lost the acknowledgement.
+        replay = subprocess.run(check, capture_output=True, text=True, timeout=15)
+        if replay.returncode or replay.stdout.strip() != expected:
+            raise RuntimeError(f"unable to reconcile collision receipt: {replay}")
+        source.write_bytes(b"changed after upload")
+        mismatch = subprocess.run(check, capture_output=True, text=True, timeout=15)
+        if mismatch.returncode == 0 or "does not match upload" not in mismatch.stderr:
+            raise RuntimeError(f"unexpected changed-source result: {mismatch}")
+        if set((root / "receipts").iterdir()) != receipts:
+            raise RuntimeError("receipt lookup created a new attempt")
+        missing = [*check[:-1], "0" * 32]
+        missing[missing.index("--timeout") + 1] = "1"
+        pending = subprocess.run(missing, capture_output=True, text=True, timeout=5)
+        if pending.returncode == 0 or "timed out" not in pending.stderr.lower():
+            raise RuntimeError(f"missing receipt was not reported as unconfirmed: {pending}")
+        print("PASS: original receipt lookup, changed-source rejection and missing-receipt timeout")
         deadline = time.monotonic() + 5
         while any((root / "incoming").iterdir()) and time.monotonic() < deadline:
             time.sleep(0.05)
@@ -142,6 +228,86 @@ def check_receipts(server, client, config, rclone):
     finally:
         worker.terminate()
         worker.wait(timeout=5)
+
+
+def check_existing_number_one(server, client, config):
+    root = server / "preexisting-drive"
+    scripts = Path(__file__).resolve().parent
+    worker = [sys.executable, scripts / "drive_inbox.py", root]
+    subprocess.run([*worker, "--once"], check=True)
+    source = client / "归档[1].tar.gz"
+    source.write_bytes(b"existing content")
+    canonical = root / "files" / source.name
+    canonical.write_bytes(b"original")
+    existing = canonical.with_name(f"{canonical.stem} (1){canonical.suffix}")
+    existing.write_bytes(source.read_bytes())
+    daemon = subprocess.Popen([*worker, "--interval", "0.1"])
+    try:
+        result = subprocess.run([sys.executable, scripts / "drive_upload.py", source,
+                                 f"home:{root}", "--config", config, "--timeout", "20"],
+                                capture_output=True, text=True, timeout=30)
+        if result.returncode or result.stdout.strip() != existing.name:
+            raise RuntimeError(f"existing (1) receipt failed: {result}")
+    finally:
+        daemon.terminate()
+        daemon.wait(timeout=5)
+
+    # Replay the submitted request after the worker wrote its receipt.
+    receipt, = (root / "receipts").glob("*.json")
+    job = root / "incoming" / receipt.stem
+    job.mkdir(exist_ok=True)
+    (job / "payload").write_bytes(source.read_bytes())
+    (job / "request.json").write_text(json.dumps({
+        "name": source.name, "sha256": hashlib.sha256(source.read_bytes()).hexdigest()
+    }))
+    prior = receipt.read_bytes()
+    subprocess.run([*worker, "--once"], check=True)
+    if job.exists() or receipt.read_bytes() != prior:
+        raise RuntimeError("worker failed to reconcile the existing (1) receipt")
+    if (set(canonical.parent.iterdir()) != {canonical, existing} or
+            canonical.read_bytes() != b"original" or existing.read_bytes() != source.read_bytes()):
+        raise RuntimeError("reusing (1) changed published files")
+    print("PASS: existing (1) over SFTP and restart with a persisted receipt")
+
+
+def check_long_collision(server, client, config):
+    scripts = Path(__file__).resolve().parent
+    root = server / "long-drive"
+    worker = [sys.executable, scripts / "drive_inbox.py", root]
+    subprocess.run([*worker, "--once"], check=True)
+    source = client / ("档" * 83 + "ab.zip")
+    assert len(source.name.encode("utf-8")) == 255
+    source.write_bytes(b"revision")
+    published = root / "files"
+    original = published / source.name
+    original.write_bytes(b"original")
+    daemon = subprocess.Popen([*worker, "--interval", "0.1"])
+    try:
+        names = []
+        for _ in range(2):
+            result = subprocess.run([sys.executable, scripts / "drive_upload.py", source,
+                                     f"home:{root}", "--config", config, "--timeout", "20"],
+                                    capture_output=True, text=True, timeout=30, check=True)
+            names.append(result.stdout.rstrip("\n"))
+    finally:
+        daemon.terminate()
+        daemon.wait(timeout=5)
+    chosen = published / names[0]
+    assert names[0] == names[1] and chosen != original and chosen.suffix == ".zip"
+    assert original.read_bytes() == b"original" and chosen.read_bytes() == source.read_bytes()
+    assert set(published.iterdir()) == {original, chosen}
+    receipts = list((root / "receipts").iterdir())
+    assert len(receipts) == 2
+    receipt = receipts[0]
+    prior = receipt.read_bytes()
+    job = root / "incoming" / receipt.stem
+    job.mkdir(exist_ok=True)
+    (job / "request.json").write_text(json.dumps({
+        "name": source.name, "sha256": hashlib.sha256(source.read_bytes()).hexdigest()
+    }))
+    subprocess.run([*worker, "--once"], check=True)
+    assert not job.exists() and prior == receipt.read_bytes()
+    print("PASS: 255-byte UTF-8 collision, SFTP retry and worker receipt replay")
 
 
 def simulate(root):
@@ -223,9 +389,12 @@ disable_hashcheck = true
                     raise RuntimeError(f"range mismatch at byte {start}")
                 print(f"offset={start} bytes={len(actual)} sha256={hashlib.sha256(actual).hexdigest()}")
             print("PASS: pinned host key, authenticated SFTP listing and four byte ranges")
+            check_aborted_attempts(server, client, rclone_conf)
             check_drive(server, client, rclone)
             check_interrupted_upload(server, client, rclone, command)
             check_receipts(server, client, rclone_conf, rclone)
+            check_existing_number_one(server, client, rclone_conf)
+            check_long_collision(server, client, rclone_conf)
         except Exception:
             log.flush()
             log.seek(0)

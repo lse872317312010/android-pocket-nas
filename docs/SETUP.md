@@ -62,3 +62,29 @@ On Ubuntu or WSL with OpenSSH installed, run `bash scripts/check-sftp.sh --local
 For the LAN test, configure an SSH alias with the home phone's address, port, user and key in your private SSH config. Verify the host key against the server before recording it in known_hosts. Point the account's starting directory at a writable test area with at least 100 MB free. Run `bash scripts/check-sftp.sh pocket-nas` using your alias. The script uploads a random 100 MB file, renames and lists it, downloads it, removes the remote test directory and compares the bytes and SHA-256 digests. On interruption, inspect the printed directory name and clean up that test directory manually. Keep connection details out of public logs.
 
 Record the LAN result separately from CI. Android picker behavior and denial outside the allowed storage root require separate device tests.
+
+### 相片历史版本与恢复 / Camera history and recovery
+
+在家庭端等待相机同步完成，再运行一次备份。以私有、专用、已存在的 POSIX 目录作为备份库。真实部署请将备份库置于独立存储设备或故障域，确认已挂载且有空间；两个路径必须彼此独立，备份库应在所有同步和 SFTP 写入目录之外。此命令只捕获运行时可见的版本。修改期间的一次目录复制不具备原子快照语义。
+
+After camera synchronization settles on home, run one capture. Use an existing dedicated private POSIX backup directory. For deployment, verify that the separate backup device or failure domain is mounted and has free space. Keep source and vault disjoint, and keep the vault outside synced folders and writable SFTP exports. Capture each revision you need to retain. A directory copy during active edits is not an atomic snapshot.
+
+```sh
+python3 scripts/backup_camera.py "$home_camera" "$vault"
+```
+
+工具复用 rclone 的内容校验和历史目录。最新备份在 `current/`；同名文件被替换前，其旧内容移到 `history/<本次运行编号>/` 下的原相对路径。源端删除不删除已备份副本。一次成功捕获有旧版时打印其历史目录。目录锁串行化同一库的捕获。失败可能留下部分更新和历史文件；保留两者，检查错误，在源端稳定后重试。历史文件占用空间，工具不会自动裁剪。
+
+The tool uses rclone checksum comparison and a per-run backup directory. Latest captured files live under `current/`. A replaced file moves to its original relative path under `history/<capture ID>/`. Source deletion leaves captured files in place. A successful capture prints its history directory when it archived a revision. A directory lock serializes captures to the same vault. A failed copy may leave a partial update and archived files. Keep both, inspect the error and retry against a settled source. History consumes storage and has no automatic pruning.
+
+恢复时按运行编号和相对路径选择版本，将其复制到同步范围以外的新建目录，并与已知原版 SHA-256 比对。练习结束只需移除该次恢复副本。停止备份只需停止运行捕获命令，保留备份库供后续恢复。
+
+Select a capture ID and relative path, restore into a fresh directory outside synchronization, and compare the SHA-256 with the known digest of that revision. Undo the drill by removing the restored test copy. To stop captures, stop invoking the command and keep the vault for recovery.
+
+```sh
+restore_dir=$(mktemp -d)
+cp -- "$vault/history/$capture_id/$relative_path" "$restore_dir/recovered-photo"
+sha256sum "$restore_dir/recovered-photo"
+```
+
+`python3 simulation/run.py --scenario sync` 运行两个 Syncthing 实例，传送三份同名等长内容，演练离线、重连和误删，恢复中间版并核对 SHA-256。仿真的备份库位于同机独立目录。 / The sync scenario transfers three equal-size revisions using two Syncthing instances, exercises an offline read and a deletion after reconnect, then verifies the restored middle revision by SHA-256. Its vault is a separate directory on the same host.

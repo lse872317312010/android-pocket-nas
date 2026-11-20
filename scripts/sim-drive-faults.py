@@ -90,6 +90,35 @@ def simulate(root):
     print("PASS corrupt and truncated replacements, verified retry and canonical-only replacement")
 
 
+def check_long_names(root):
+    # At 251 bytes a one-digit marker fits. The transition to (10) needs a short name.
+    dest = root / "long-names"
+    dest.mkdir()
+    target = dest / ("a" * 247 + ".zip")
+    target.write_bytes(b"original")
+    for n in range(2, 10):
+        target.with_name(f"{target.stem} ({n}).zip").write_bytes(bytes([n]))
+    stage = root / "long-stage"
+    stage.write_bytes(b"revision")
+    chosen = publish(stage, target, b"revision")
+    verify(chosen.name.endswith(" (10).zip"), "Incorrect marker at digit rollover")
+    verify(publish(stage, target, b"revision") == chosen, "Rollover retry changed result")
+
+    # The suffix alone can exceed the short-name budget.
+    for prefix in ("a", "b"):
+        target = dest / (prefix + "." + "s" * 253)
+        target.write_bytes(b"original")
+        short = publish(stage, target, b"revision")
+        verify(short.name.endswith(" (2)"), "Oversized suffix was not omitted")
+        verify(publish(stage, target, b"revision") == short, "Long-suffix retry changed result")
+        verify(target.read_bytes() == b"original", "Long-suffix original changed")
+        if prefix == "a":
+            first = short
+        else:
+            verify(first != short, "Distinct requested names shared a short name")
+    print("PASS: collision digit rollover, oversized suffix and name isolation")
+
+
 def simulate_full(source_root, volume):
     # Do not fill a shared filesystem. The caller supplies a dedicated, small mount.
     verify(volume.is_mount() and not any(volume.iterdir()), "Expected an empty dedicated mount")
@@ -120,6 +149,7 @@ if __name__ == "__main__":
     with tempfile.TemporaryDirectory(prefix="pocket-nas-faults-") as directory:
         root = Path(directory)
         simulate(root)
+        check_long_names(root)
         if args.full_volume:
             simulate_full(root, args.full_volume.resolve())
         else:

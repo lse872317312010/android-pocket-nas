@@ -44,3 +44,17 @@ python3 scripts/drive_commit.py "$staged" "$destination" "$sha256"
 ```
 
 仿真假设可信本地路径和协作写入的进程。暂存件保留，提交需要目标卷上的额外空间。进程被强制终止时可能留下隐藏临时文件。 / The simulation assumes trusted local paths and cooperating writers. The staged upload is retained and commit needs extra space on the destination volume. Killing the process can leave a hidden temporary file.
+
+### 已有编号文件和旧回执 / Existing numbered files and receipts
+
+同名上传先核对原文件的 SHA-256。若已有同内容的编号副本，例如 `archive (1).zip`，可直接复用该文件；需要新建副本时，仍从 `(2)` 起寻找空位。主力端校验回执和家庭端重启后重读回执时，均使用发布程序的文件名规则。已有回执无需迁移。分发独立脚本时，将 `drive_names.py` 与上传、发布脚本放在同一目录。
+
+The publisher checks the canonical file's SHA-256 first and may reuse a matching numbered copy, including a pre-existing `archive (1).zip`. Allocation of a new copy still starts at `(2)`. The upload client and worker use the publisher's naming rule when verifying fresh or persisted receipts. Existing receipts need no migration. When copying individual scripts, keep `drive_names.py` beside the upload and publication scripts.
+
+### 255 字节文件名的重名上传 / Collisions at the 255-byte filename limit
+
+发布端按文件名的编码字节数计算。若加入编号后仍在 255 字节以内，沿用原命名规则。超过上限时，副本名采用 `copy-<原文件名的完整 SHA-256> (编号)`，空间允许时保留最后一个扩展名。此哈希标识原文件名；载荷内容仍单独校验。上传端和家庭端使用同一规则核对回执。升级两端脚本后再使用此功能。既有文件无需重命名。
+
+The publisher counts encoded bytes. A numbered name that fits within 255 bytes keeps its usual spelling. For an overflow, the copy uses `copy-<full SHA-256 of the requested basename> (N)`, preserving the final suffix when it fits. The hash identifies the requested name. Payload integrity uses its separate content digest. Update both endpoints together so the client and home worker recognize the same receipt. Existing files keep their names.
+
+`--scenario access` 使用 255 字节 UTF-8 名称经 SFTP 上传并重试；`--scenario drive` 验证编号从 9 到 10、超长扩展名及不同原名的隔离。 / The access scenario uploads and retries a 255-byte UTF-8 name over SFTP. The drive scenario covers rollover from 9 to 10, oversized suffixes and isolation between different requested names.
