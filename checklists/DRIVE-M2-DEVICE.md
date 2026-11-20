@@ -4,6 +4,19 @@
 
 All checks start pending. Use synthetic data and a trusted LAN. Redact private keys, configs, home addresses, device identifiers and accounts before publishing evidence.
 
+### 首轮只做这两项 / First feedback gate
+
+两机采用同一候选提交。首次测试只用可信 Wi-Fi 和一个合成文本标记。任一步失败时停在该步。长时间息屏、蜂窝网络、相机同步和正式数据迁移留到基础路径通过之后。
+
+Use the same candidate revision on both phones where repository scripts are used. Start on trusted Wi-Fi with one synthetic text marker. Stop at the first failed step. Defer screen-off endurance, cellular access, camera sync and personal data until this path works.
+
+| 设备 / Device | 实施 / Test | 撤销 / Undo |
+|---|---|---|
+| 家庭机 1 TB / Home | 用实际运行 worker 的应用，按下文第 1–2 节在目标卷新建临时目录并运行探针。通过后运行 `python3 scripts/drive_inbox.py "$DRIVE_TEST_ROOT" --once`，再运行 `echo pocket-nas-ok > "$DRIVE_TEST_ROOT/files/device-marker.txt"`。用已配置的 LAN SFTP 服务导出测试目录，或使用[分离的只读入口](../docs/SFTP-EXPORTS.md)。记录只读入口中标记的相对路径。 / Create a fresh test root on the intended volume under the worker identity, run the capability probe, initialize the root once and write the marker with the commands shown. Export the test directory via the existing LAN SFTP service or the documented read-only view. Record its client-visible marker path. | 主力机测试结束后，停止本次专用服务或取消新增共享，撤销测试密钥授权，仅删除本次新建的测试目录。 / After the primary test, stop the temporary listener or remove the added share, revoke the test key and delete only the new test directory. |
+| 主力机 256 GB / Primary | 在文件管理器的 SFTP 入口或 RSAF 系统文件选择器中添加临时连接，核对主机密钥，打开标记，确认显示 `pocket-nas-ok`。 / Add a temporary connection using the file manager or RSAF system picker, verify the host key and open the marker. Check for the exact text. | 移除临时连接、为本次测试授予的目录访问权限和下载的测试副本。 / Remove the test connection, any test-specific folder grants and the downloaded test copy. |
+
+**只需回复 / Minimal reply**：两台机型与系统版本；家庭机目标卷类型和“探针通过”或首个失败操作及 errno；主力机应用和“读到标记”或首个错误。如果家庭机先失败，主力机填“未测”。 / Report models and OS versions, the home volume type and probe result (first failed operation and errno if present), and the primary app and marker result or first error. If home fails first, mark primary untested. Omit keys, addresses and personal files.
+
 ### 1. 准备测试环境 / Prepare
 
 - [ ] 记录两机型号、系统与应用版本，注明客户端是 Redmi、Ubuntu 或 WSL。选用现有服务：具备 Python、rclone 和 OpenSSH 的 Termux 环境是可测试组合；其他 SFTP 应用需要确认能与提交程序共享目录。 / Record both models, OS and app versions, and the exact client (Redmi, Ubuntu or WSL). A Termux environment with Python, rclone and OpenSSH is a candidate. Other SFTP apps must demonstrate directory access from the publisher.
