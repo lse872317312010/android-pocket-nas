@@ -34,3 +34,11 @@
 4. Record availability, power and temperature, recovered bytes/checksums and failure count.
 
 **Never commit** passwords, private keys, private VPN IDs, precise home IPs, photo samples or security recovery material.
+
+### Repeatable M1 transfer check
+
+On Ubuntu or WSL with OpenSSH installed, run `bash scripts/check-sftp.sh --local` to exercise the SFTP batch against a temporary local OpenSSH subsystem. CI runs this mode. It covers protocol operations only.
+
+For the LAN test, configure an SSH alias with the home phone's address, port, user and key in your private SSH config. Verify the host key against the server before recording it in known_hosts. Point the account's starting directory at a writable test area with at least 100 MB free. Run `bash scripts/check-sftp.sh pocket-nas` using your alias. The script uploads a random 100 MB file, renames and lists it, downloads it, removes the remote test directory and compares the bytes and SHA-256 digests. On interruption, inspect the printed directory name and clean up that test directory manually. Keep connection details out of public logs.
+
+Record the LAN result separately from CI. Android picker behavior and denial outside the allowed storage root require separate device tests.
