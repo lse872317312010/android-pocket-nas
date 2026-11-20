@@ -44,3 +44,9 @@ python3 scripts/drive_commit.py "$staged" "$destination" "$sha256"
 ```
 
 仿真假设可信本地路径和协作写入的进程。暂存件保留，提交需要目标卷上的额外空间。进程被强制终止时可能留下隐藏临时文件。 / The simulation assumes trusted local paths and cooperating writers. The staged upload is retained and commit needs extra space on the destination volume. Killing the process can leave a hidden temporary file.
+
+### 已有编号文件和旧回执 / Existing numbered files and receipts
+
+同名上传先核对原文件的 SHA-256。若已有同内容的编号副本，例如 `archive (1).zip`，可直接复用该文件；需要新建副本时，仍从 `(2)` 起寻找空位。主力端校验回执和家庭端重启后重读回执时，均使用发布程序的文件名规则。已有回执无需迁移。分发独立脚本时，将 `drive_names.py` 与上传、发布脚本放在同一目录。
+
+The publisher checks the canonical file's SHA-256 first and may reuse a matching numbered copy, including a pre-existing `archive (1).zip`. Allocation of a new copy still starts at `(2)`. The upload client and worker use the publisher's naming rule when verifying fresh or persisted receipts. Existing receipts need no migration. When copying individual scripts, keep `drive_names.py` beside the upload and publication scripts.

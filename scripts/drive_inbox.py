@@ -19,6 +19,7 @@ import tempfile
 import time
 
 from drive_commit import publish
+from drive_names import numbered_pattern
 
 
 @contextmanager
@@ -86,11 +87,8 @@ def process_job(root, job):
         actual_name, digest = validate_record(record)
         if os.path.lexists(request):
             requested, expected = validate_record(read_json(request))
-            requested_path = Path(requested)
-            numbered = (re.escape(requested_path.stem) + r" \(([2-9]|[1-9][0-9]+)\)"
-                        + re.escape(requested_path.suffix))
             if digest != expected or (requested != actual_name and
-                                      not re.fullmatch(numbered, actual_name)):
+                                      not re.fullmatch(numbered_pattern(Path(requested)), actual_name)):
                 raise ValueError("request ID already has a different receipt")
         elif os.path.lexists(payload):
             # Could be a client uploading; requests become actionable only on rename.
