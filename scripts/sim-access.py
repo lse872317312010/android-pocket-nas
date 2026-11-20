@@ -9,11 +9,70 @@ import socket
 import subprocess
 import tempfile
 import time
+import zipfile
 
 
 def make_key(path):
     subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", path],
                    check=True)
+
+
+def check_drive(server, client, rclone):
+    """Exercise user-visible file operations with the same SFTP configuration."""
+    def create_archive(path, contents):
+        # Fixed ZIP metadata lets the collision case hold size and mtime constant.
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr(zipfile.ZipInfo("sample.txt"), contents)
+
+    def verify(actual, expected, label):
+        if actual != expected:
+            raise RuntimeError(f"{label}: byte comparison failed")
+        print(f"PASS: {label}")
+
+    apk = server / "example.apk"
+    create_archive(apk, b"synthetic transfer fixture, not an installable application")
+    rclone("copyto", f"home:{apk}", "downloaded.apk")
+    verify((client / "downloaded.apk").read_bytes(), apk.read_bytes(), "APK fixture download")
+
+    source = client / "upload.zip"
+    destination = f"home:{server}/archive.zip"
+    create_archive(source, b"revision A")
+    first = source.read_bytes()
+    rclone("copyto", source, destination)
+    verify(rclone("cat", destination), first, "ZIP upload")
+    rclone("copyto", source, destination)
+    verify(rclone("cat", destination), first, "repeat copy of identical ZIP")
+
+    # SFTP exposes second-resolution modification times. A distinct ZIP with
+    # matching size and timestamp can compare equal under rclone defaults.
+    stamp = int((server / "archive.zip").stat().st_mtime)
+    create_archive(source, b"revision B")
+    os.utime(source, (stamp, stamp))
+    if source.read_bytes() == first or source.stat().st_size != len(first):
+        raise RuntimeError("invalid same-size collision fixture")
+    rclone("copyto", source, destination)
+    verify(rclone("cat", destination), first, "default copy skips same-size/same-mtime collision")
+
+    create_archive(source, b"revision C with a larger payload")
+    replacement = source.read_bytes()
+    rclone("copyto", "--ignore-existing", source, destination)
+    verify(rclone("cat", destination), first, "ignore-existing preserves changed-size collision")
+
+    # Model a truncated staging object. Promote only verified bytes. This
+    # exercises the failed verification path, not an actual network outage.
+    stage = f"home:{server}/archive.zip.pending"
+    incomplete = client / "incomplete.zip"
+    incomplete.write_bytes(replacement[:-11])
+    rclone("copyto", incomplete, stage)
+    if rclone("cat", stage) == replacement:
+        raise RuntimeError("incomplete staging file passed verification")
+    rclone("deletefile", stage)
+    verify(rclone("cat", destination), first, "failed staging verification preserves original")
+    if "archive.zip.pending" in rclone("lsf", f"home:{server}").decode().splitlines():
+        raise RuntimeError("failed staging object survived cleanup")
+
+    rclone("copyto", source, destination)
+    verify(rclone("cat", destination), replacement, "default copy replaces changed-size ZIP")
 
 
 def simulate(root):
@@ -94,6 +153,7 @@ disable_hashcheck = true
                     raise RuntimeError(f"range mismatch at byte {start}")
                 print(f"offset={start} bytes={len(actual)} sha256={hashlib.sha256(actual).hexdigest()}")
             print("PASS: pinned host key, authenticated SFTP listing and four byte ranges")
+            check_drive(server, client, rclone)
         except Exception:
             log.flush()
             log.seek(0)
