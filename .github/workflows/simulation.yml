@@ -1,0 +1,24 @@
+name: Two-phone software simulation
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install integration dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openssh-server rclone syncthing
+          sudo install -d -m 0755 /run/sshd
+      - name: Exercise simulated endpoints
+        run: python3 simulation/run.py --report simulation-report.json
+      - name: Preserve scenario results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulation-results
+          path: simulation-report.json
+          if-no-files-found: warn

@@ -1,5 +1,7 @@
 # 手机家庭存储方案 / Android Pocket NAS
 
+[双手机软件仿真 / Two-phone software simulation](docs/SIMULATION.md)
+
 ## 中文说明
 
 将闲置的 1 TB Android 手机留在家中作为存储节点。日常携带的 256 GB 手机按需打开远程文件，只把需要离线使用的目录同步到本地。项目独立运行，未来可通过标准协议接入 Personal OS，与 Python 仿真平台无关。
