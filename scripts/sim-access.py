@@ -185,6 +185,46 @@ def check_existing_number_one(server, client, config):
     print("PASS: existing (1) over SFTP and restart with a persisted receipt")
 
 
+def check_long_collision(server, client, config):
+    scripts = Path(__file__).resolve().parent
+    root = server / "long-drive"
+    worker = [sys.executable, scripts / "drive_inbox.py", root]
+    subprocess.run([*worker, "--once"], check=True)
+    source = client / ("档" * 83 + "ab.zip")
+    assert len(source.name.encode("utf-8")) == 255
+    source.write_bytes(b"revision")
+    published = root / "files"
+    original = published / source.name
+    original.write_bytes(b"original")
+    daemon = subprocess.Popen([*worker, "--interval", "0.1"])
+    try:
+        names = []
+        for _ in range(2):
+            result = subprocess.run([sys.executable, scripts / "drive_upload.py", source,
+                                     f"home:{root}", "--config", config, "--timeout", "20"],
+                                    capture_output=True, text=True, timeout=30, check=True)
+            names.append(result.stdout.rstrip("\n"))
+    finally:
+        daemon.terminate()
+        daemon.wait(timeout=5)
+    chosen = published / names[0]
+    assert names[0] == names[1] and chosen != original and chosen.suffix == ".zip"
+    assert original.read_bytes() == b"original" and chosen.read_bytes() == source.read_bytes()
+    assert set(published.iterdir()) == {original, chosen}
+    receipts = list((root / "receipts").iterdir())
+    assert len(receipts) == 2
+    receipt = receipts[0]
+    prior = receipt.read_bytes()
+    job = root / "incoming" / receipt.stem
+    job.mkdir(exist_ok=True)
+    (job / "request.json").write_text(json.dumps({
+        "name": source.name, "sha256": hashlib.sha256(source.read_bytes()).hexdigest()
+    }))
+    subprocess.run([*worker, "--once"], check=True)
+    assert not job.exists() and prior == receipt.read_bytes()
+    print("PASS: 255-byte UTF-8 collision, SFTP retry and worker receipt replay")
+
+
 def simulate(root):
     server = root / "home-node"
     client = root / "primary-phone"
@@ -268,6 +308,7 @@ disable_hashcheck = true
             check_interrupted_upload(server, client, rclone, command)
             check_receipts(server, client, rclone_conf, rclone)
             check_existing_number_one(server, client, rclone_conf)
+            check_long_collision(server, client, rclone_conf)
         except Exception:
             log.flush()
             log.seek(0)
