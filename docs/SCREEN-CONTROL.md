@@ -1,6 +1,18 @@
 # 家庭机黑屏远控 / Home phone screen control
 
-## 两台手机怎么配
+## 一键测试版 / One-APK test build
+
+**主力机**安装 `pocket-nas-screen.apk` 并打开「家庭机远控」。**家中机**在同一可信 Wi-Fi 下打开「开发者选项 → 无线调试 → 使用配对码配对设备」。主力机将显示附近正在配对的设备，点家中机并输入它显示的六位码。应用随后查找连接端口、应用随包的黑屏配置并打开画面。再次启动时会使用已保存的家庭机。无需在主力机输入 IP、导入 JSON 或调整画质。
+
+先在家里测试：打开家中机秒表，主力机点启动和暂停，同时看家中面板是否亮起。反馈时写明卡在哪一步、主力机的提示、家中屏幕有无闪亮。配对码只输入主力机应用。
+
+**异地测试**复用两机已连接的 Tailscale。将家中节点在 tailnet 中命名为 `pocket-nas` 并启用 MagicDNS。应用用名称和上次局域网发现的连接端口访问；无线调试重启后端口可能改变，此时需要回到家庭 Wi-Fi 刷新。家中机的系统配对和私网登录分别由 Android 和 Tailscale 确认。
+
+Install `pocket-nas-screen.apk` on the controller. On the home phone, open Wireless debugging → Pair device with pairing code on trusted home Wi-Fi. Select the advertised home phone and enter its six digits on the controller. The launcher discovers its connection port and applies the embedded screen profile. Reopening the launcher connects to the remembered phone. Test by operating a stopwatch and observing the physical panel. For mobile data, use an existing Tailscale network with MagicDNS and name the home node `pocket-nas`. The last known debugging port must still be current.
+
+The test APK has its own application ID, `io.github.pocketnas.screen`. Build from the repository root using `bash controller/build.sh` with the upstream JDK and Android SDK. File access continues to use the existing SFTP service. 下文是使用原版客户端进行对照测试的步骤。 / The following section covers comparison testing with the unmodified client.
+
+## 两台手机怎么配（原版客户端）
 
 Android Pocket NAS 用 Scrcpy Android 的设备配置启动可选的整屏远控服务。家庭机继续提供 SFTP，主力机按需串流画面和触控。需要家庭机 Android 11+ 的无线调试功能。第一次配对时两台手机都在同一个可信 Wi-Fi 上。
 
