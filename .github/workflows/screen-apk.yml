@@ -1,4 +1,4 @@
-name: Build Android screen controller
+name: Build Android home controller
 on:
   pull_request:
     paths:
@@ -22,6 +22,6 @@ jobs:
       - run: bash controller/build.sh
       - uses: actions/upload-artifact@v4
         with:
-          name: pocket-nas-screen
-          path: build/pocket-nas-screen.apk
+          name: pocket-nas-home
+          path: build/pocket-nas-home.apk
           if-no-files-found: error

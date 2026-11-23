@@ -1,5 +1,7 @@
 # 手机家庭存储方案 / Android Pocket NAS
 
+[主力机测试 APK 的配对、文件发送与空间查询 / Controller APK and file tools](docs/SCREEN-CONTROL.md)
+
 [双手机软件仿真 / Two-phone software simulation](docs/SIMULATION.md)
 
 ## 中文说明

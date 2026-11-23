@@ -2,15 +2,21 @@
 
 ## 一键测试版 / One-APK test build
 
-**主力机**安装 `pocket-nas-screen.apk` 并打开「家庭机远控」。**家中机**在同一可信 Wi-Fi 下打开「开发者选项 → 无线调试 → 使用配对码配对设备」。主力机将显示附近正在配对的设备，点家中机并输入它显示的六位码。应用随后查找连接端口、应用随包的黑屏配置并打开画面。再次启动时会使用已保存的家庭机。无需在主力机输入 IP、导入 JSON 或调整画质。
+**256 GB 主力机**安装 `pocket-nas-home.apk`，打开「家庭机」。**1 TB 家庭机**与主力机连同一 Wi-Fi，在「开发者选项 → 无线调试 → 使用配对码配对设备」显示六位码。主力机点选家庭机并输入该码，之后应用记住设备、发现连接端口并载入远控设置。新版使用独立包名 `io.github.pocketnas.home`，可与旧测试版共存，首次需单独配对。
 
-先在家里测试：打开家中机秒表，主力机点启动和暂停，同时看家中面板是否亮起。反馈时写明卡在哪一步、主力机的提示、家中屏幕有无闪亮。配对码只输入主力机应用。
+| 主力机首页 | 如何验证 |
+|---|---|
+| 刷新存储空间 | 显示家庭机共享存储的可用和总容量。断开家庭机网络后刷新，应显示读取失败。 |
+| 发送文件到家庭机 | 选一份小文档或照片，完成时看实际目标路径。家庭机文件管理器打开内部存储的 Download。再发一次，检查两个副本。每次选一个文件，上限 512 MiB。上传期间保持此页打开。 |
+| 打开家庭机屏幕 | 在家庭机打开秒表，主力机点启动与暂停，同时观察现场面板。 |
 
-**异地测试**复用两机已连接的 Tailscale。将家中节点在 tailnet 中命名为 `pocket-nas` 并启用 MagicDNS。应用用名称和上次局域网发现的连接端口访问；无线调试重启后端口可能改变，此时需要回到家庭 Wi-Fi 刷新。家中机的系统配对和私网登录分别由 Android 和 Tailscale 确认。
+文件上传复用已配对的无线调试连接及客户端的文件传输实现，可以独立于投屏运行。完整远程目录浏览继续使用现有 SFTP 方案。文件页显示的完成表示家庭机已应答。若在最后一步断网，先检查 Download 再重试。应用记录最近一次传输的结果，供再次打开时核对。24 小时运行、实体屏幕与这两台手机的兼容性待实测。
 
-Install `pocket-nas-screen.apk` on the controller. On the home phone, open Wireless debugging → Pair device with pairing code on trusted home Wi-Fi. Select the advertised home phone and enter its six digits on the controller. The launcher discovers its connection port and applies the embedded screen profile. Reopening the launcher connects to the remembered phone. Test by operating a stopwatch and observing the physical panel. For mobile data, use an existing Tailscale network with MagicDNS and name the home node `pocket-nas`. The last known debugging port must still be current.
+**异地测试**复用两机已连接的 Tailscale。将家中节点在 tailnet 中命名为 `pocket-nas` 并启用 MagicDNS。应用用名称和上次局域网发现的连接端口访问。无线调试重启后端口可能改变，此时需要回到家庭 Wi-Fi 刷新。
 
-The test APK has its own application ID, `io.github.pocketnas.screen`. Build from the repository root using `bash controller/build.sh` with the upstream JDK and Android SDK. File access continues to use the existing SFTP service. 下文是使用原版客户端进行对照测试的步骤。 / The following section covers comparison testing with the unmodified client.
+Install `pocket-nas-home.apk` on the 256 GB controller. On trusted home Wi-Fi, open Wireless debugging → Pair device with pairing code on the home phone. Select the home phone and enter the six digits on the controller. This build has its own identity and can coexist with the earlier screen-only build. Its home page shows shared-storage capacity and offers an Android document picker for one upload of up to 512 MiB. Leave the page open during the transfer. Repeat with the same file, check both names in the remote Download folder, and check that loss of network produces an error. If the acknowledgement was lost, inspect Download before retrying. Open screen control separately to exercise the stopwatch test. Remote directory browsing remains available through the project's SFTP setup. Cellular access uses an existing Tailscale network, home peer name `pocket-nas`, MagicDNS and the last known debugging port.
+
+Build with JDK 17 and the upstream Android SDK using `bash controller/build.sh`. The script runs the storage parser and upstream transfer unit tests before assembling the APK.
 
 ## 两台手机怎么配（原版客户端）
 

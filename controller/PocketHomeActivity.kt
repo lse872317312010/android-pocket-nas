@@ -1,5 +1,6 @@
 package com.scrcpy.remote.ui
 
+import android.content.Intent
 import android.os.Bundle
 import android.text.InputType
 import android.widget.*
@@ -150,8 +151,8 @@ class PocketHomeActivity : ComponentActivity() {
                     val profile = requireNotNull(ProfileBackupCodec.decode(assets.open("pocket-screen.json").use { it.readBytes() }).devices.single().mirroringSettings)
                     val device = SavedDevice(id, "家庭机", host, port, mirroringSettings = profile)
                     if (!repository.mutate { saveDevice(device) }) error("save")
-                    startActivity(MirrorActivity.newIntent(this@PocketHomeActivity, host, port, id))
-                    message("已退出远控时，可点下方重新连接。")
+                    openHome(device)
+                    message("已返回连接页。")
                 }
             } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
             catch (_: Exception) { message("连接准备失败。请检查 Wi-Fi 和家庭机的无线调试。") }
@@ -181,8 +182,8 @@ class PocketHomeActivity : ComponentActivity() {
                 } ?: error("unresolved")
                 val copy = saved.copy(id = "$id-away", host = addr)
                 if (!repository.mutate { saveDevice(copy) }) error("save")
-                startActivity(MirrorActivity.newIntent(this@PocketHomeActivity, addr, copy.port, copy.id))
-                message("异地连接已发起。")
+                openHome(copy)
+                message("已返回异地连接页。")
             } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
             catch (_: Exception) { message("请连接 Tailscale，并确认家庭机在私网中的名称为 pocket-nas。") }
             finally { busy = false }
@@ -190,6 +191,10 @@ class PocketHomeActivity : ComponentActivity() {
             button("家庭 Wi-Fi 连接") { connect(saved.host) }
             button("重新配对", ::findPhone)
         }
+    }
+
+    private fun openHome(device: SavedDevice) {
+        startActivity(Intent(this, PocketFilesActivity::class.java).putExtra("deviceId", device.id))
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
