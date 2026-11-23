@@ -14,6 +14,12 @@
 
 **异地测试**复用两机已连接的 Tailscale。将家中节点在 tailnet 中命名为 `pocket-nas` 并启用 MagicDNS。应用用名称和上次局域网发现的连接端口访问。无线调试重启后端口可能改变，此时需要回到家庭 Wi-Fi 刷新。
 
+**外网连接保护（home.2）** 首次在可信家庭 Wi-Fi 输入六位码后，应用在同一 Wi-Fi、同一 IP 上首次连接无线调试服务并登记 TLS 公钥。这个首次登记依赖家庭网络可信。以后传文件、查容量和投屏都会在 TLS 握手中核对该公钥。异地的名称解析与实际连接都固定到主力机当前的 VPN。私网离线或密钥变化时连接停止。家庭机重启导致调试服务更换密钥时，请回家重新配对。无须开放公网端口，日常使用无需新增密码或指纹确认。两台设备都须已加入自己的 Tailscale 私网，家庭机须命名为 `pocket-nas`。应用不会修改路由器或 tailnet 的访问策略。
+
+**测试包迁移** 早期 CI 测试包使用临时签名。如 Android 提示签名冲突，卸载旧主力机测试包，安装新版后在家重新配对。在家庭机无线调试的已配对列表中，可先忘记旧主力机条目。此过程只需在切换旧测试包时处理。
+
+**Remote connections (home.2)** After successful code pairing, enroll the connection service's TLS public key on the same trusted Wi-Fi network and IP. This is trust on first use on that LAN. All later ADB sessions check that key during the TLS handshake and reject legacy plaintext transport. Away DNS and sockets are bound to the current VPN and the expected private home address. If the VPN is lost or the key changes, reconnect the VPN or re-pair locally as appropriate. The client does not change the router or tailnet-wide access policy. A changed test signer may require reinstalling the controller and pairing again.
+
 Install `pocket-nas-home.apk` on the 256 GB controller. On trusted home Wi-Fi, open Wireless debugging → Pair device with pairing code on the home phone. Select the home phone and enter the six digits on the controller. This build has its own identity and can coexist with the earlier screen-only build. Its home page shows shared-storage capacity and offers an Android document picker for one upload of up to 512 MiB. Leave the page open during the transfer. Repeat with the same file, check both names in the remote Download folder, and check that loss of network produces an error. If the acknowledgement was lost, inspect Download before retrying. Open screen control separately to exercise the stopwatch test. Remote directory browsing remains available through the project's SFTP setup. Cellular access uses an existing Tailscale network, home peer name `pocket-nas`, MagicDNS and the last known debugging port.
 
 Build with JDK 17 and the upstream Android SDK using `bash controller/build.sh`. The script runs the storage parser and upstream transfer unit tests before assembling the APK.

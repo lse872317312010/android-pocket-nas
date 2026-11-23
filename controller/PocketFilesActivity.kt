@@ -100,7 +100,7 @@ class PocketFilesActivity : ComponentActivity() {
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                space.text = "未能读取空间。请确认家庭机在线且无线调试已开启，然后刷新。"
+                space.text = "未能安全连接家庭机。请检查网络与无线调试。如果家庭机刚重启且重试仍失败，请回到家庭 Wi-Fi 重新配对。"
             } finally {
                 refresh.isEnabled = true
             }

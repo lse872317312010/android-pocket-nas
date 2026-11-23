@@ -11,7 +11,6 @@ import com.scrcpy.remote.adb.*
 import com.scrcpy.remote.data.*
 import java.io.Closeable
 import kotlinx.coroutines.launch
-import java.net.InetAddress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -57,7 +56,7 @@ class PocketHomeActivity : ComponentActivity() {
         val host = prefs.getString("paired", null)
         when {
             pendingHost != null && pairing.pairingState.value != PairingState.Idle -> message("正在配对…")
-            host != null -> connect(host)
+            host != null && getSharedPreferences("pocket-security", MODE_PRIVATE).contains("spki") -> connect(host)
             else -> findPhone()
         }
     }
@@ -175,11 +174,8 @@ class PocketHomeActivity : ComponentActivity() {
         run {
             try {
                 val addr = withContext(Dispatchers.IO) {
-                    InetAddress.getAllByName("pocket-nas").firstOrNull {
-                        val bytes = it.address
-                        bytes.size == 4 && bytes[0].toInt() == 100 && (bytes[1].toInt() and 255) in 64..127
-                    }?.hostAddress
-                } ?: error("unresolved")
+                    PocketTransport.awayAddress(this@PocketHomeActivity)
+                }
                 val copy = saved.copy(id = "$id-away", host = addr)
                 if (!repository.mutate { saveDevice(copy) }) error("save")
                 openHome(copy)
