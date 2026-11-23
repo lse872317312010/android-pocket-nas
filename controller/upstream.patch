@@ -163,6 +163,30 @@ index 0da06af..4445f99 100644
  
          @SuppressLint("NewApi") // Available on API 34, or Android 13 with T extension 7.
          private fun cancelResolution(active: Resolution) {
+diff --git a/app/src/main/java/com/scrcpy/remote/session/ConnectionProbeChecks.kt b/app/src/main/java/com/scrcpy/remote/session/ConnectionProbeChecks.kt
+index 9be0a9d..dd4fea6 100644
+--- a/app/src/main/java/com/scrcpy/remote/session/ConnectionProbeChecks.kt
++++ b/app/src/main/java/com/scrcpy/remote/session/ConnectionProbeChecks.kt
+@@ -6,7 +6,7 @@ import com.scrcpy.remote.adb.AdbStreamChannel
+ import com.scrcpy.remote.adb.AdbSync
+ import com.scrcpy.remote.scrcpy.ScrcpyServerVersion
+ import java.net.InetSocketAddress
+-import java.net.Socket
++import com.scrcpy.remote.ui.PocketTransport
+ import java.net.SocketTimeoutException
+ import java.security.MessageDigest
+ 
+@@ -21,7 +21,9 @@ object ConnectionProbeChecks {
+         try {
+             return ConnectionProbe(
+                 network = {
+-                    Socket().use { it.connect(InetSocketAddress(host, port), TCP_TIMEOUT_MS) }
++                    PocketTransport.remembered(app).openSocket(host).use {
++                        it.connect(InetSocketAddress(host, port), TCP_TIMEOUT_MS)
++                    }
+                 },
+                 authorization = {
+                     val connection = AdbDeviceConnection.create(app).also { adb = it }
 diff --git a/app/src/main/java/com/scrcpy/remote/ui/MainViewModel.kt b/app/src/main/java/com/scrcpy/remote/ui/MainViewModel.kt
 index 91783cc..c4e58c9 100644
 --- a/app/src/main/java/com/scrcpy/remote/ui/MainViewModel.kt

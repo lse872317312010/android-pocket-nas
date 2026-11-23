@@ -10,6 +10,8 @@
 | SYNC-02 | 离线访问热文件 / Offline hot file | 断网时可打开 / Open while disconnected | 未测试 / Not tested | 待补 / TBD |
 | SAFE-01 | 误删后恢复 / Accidental deletion and recovery | 能从独立保留的副本还原 / Restore independently retained copy | 未测试 / Not tested | 待补 / TBD |
 | WAN-01 | 移动网络私有访问 / Private mobile data access | 家庭端连接 Wi-Fi，无需端口映射 / Works with home Wi-Fi and no port forward | 未测试 / Not tested | 待补 / TBD |
+| WAN-02 | 主力机切移动数据，断开 Tailscale 再刷新 / Drop the VPN on mobile data, then refresh | 新请求失败，重新连接后可恢复。测试传输时断线，核对家庭机上的文件回执 / Requests fail while offline and recover over VPN. Check upload outcome separately. | 未测试 / Not tested | 待补 / TBD |
+| WAN-03 | 家庭机重启后从外网重试 / Reconnect remotely after a home reboot | 若调试公钥改变，应用拒绝连接，回家重新输入配对码后恢复 / A changed debugging key blocks the session until trusted Wi-Fi pairing is repeated. | 未测试 / Not tested | 待补 / TBD |
 | VPN-01 | 与 Clash 共存 / Clash coexistence | 记录已成功验证且受支持的配置 / Document successful supported configuration | 未测试 / Not tested | 待补 / TBD |
 | REL-01 | 息屏 24 小时 / Screen off 24 hours | 全程可访问 / Service accessible throughout | 未测试 / Not tested | 待补 / TBD |
 | REL-02 | 连续运行 72 小时 / 72-hour continuous operation | 记录故障及恢复过程 / Failures and recovery recorded | 未测试 / Not tested | 待补 / TBD |
