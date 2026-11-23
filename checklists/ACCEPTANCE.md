@@ -14,6 +14,10 @@
 | REL-01 | 息屏 24 小时 / Screen off 24 hours | 全程可访问 / Service accessible throughout | 未测试 / Not tested | 待补 / TBD |
 | REL-02 | 连续运行 72 小时 / 72-hour continuous operation | 记录故障及恢复过程 / Failures and recovery recorded | 未测试 / Not tested | 待补 / TBD |
 | REL-03 | 重启或 Wi-Fi 中断 / Reboot / Wi-Fi interruption | 测得恢复服务的耗时 / Service recovers within measured time | 未测试 / Not tested | 待补 / TBD |
+| SCR-01 | 局域网黑屏触控 / LAN screen control | 主力机可启停秒表，家庭机面板保持黑屏 / Operate stopwatch with home panel dark | 未测试 / Not tested | 待补 / TBD |
+| SCR-02 | 黑屏连续会话 24 h / 24 h continuous mirror | 全程保持连接，起止时均可触控，记录掉线和亮屏事件 / Session survives with working input at start and end. Record drops and panel wakeups. | 未测试 / Not tested | 待补 / TBD |
+| SCR-03 | 退出后闲置 24 h 再跨网连接 / 24 h idle then mobile reconnect | 断开时面板灭，文件仍可读，从移动网重连并操作，无闪屏或现场确认 / Dark panel on exit, SFTP readable and mobile control resumes without a panel flash or local approval | 未测试 / Not tested | 待补 / TBD |
+| SCR-04 | Wi-Fi 中断、重启分别测试 / Separate Wi-Fi loss and reboot drills | 分别记录端口变化、亮屏、现场解锁和恢复时间；仅两种情况都无需现场操作才算无人恢复 / Record port changes, flashes, local unlock and recovery times for each. Unattended recovery requires both to succeed without local input. | 未测试 / Not tested | 待补 / TBD |
 | SAFETY-01 | 充电与温控 / Charge/thermal safety | 无异常发热，记录保护配置 / No abnormal heat; protections documented | 未测试 / Not tested | 待补 / TBD |
 
 记录机型、系统、应用版本、网络条件、命令、截图或日志路径、实测指标和测试备注。仅填写实际观察到的结果。

@@ -16,6 +16,7 @@
 | 主力机按需打开文件 | RSAF（rclone + Android 存储访问框架 SAF） | 支持网络协议的文件管理器；应用兼容性需实测 |
 | 离线目录 | Syncthing-Fork | 仅按需访问时可跳过同步 |
 | 异地访问 | Tailscale | 默认关闭路由器公网端口映射；与 Clash 冲突时评估 WireGuard 等方案 |
+| 家庭机黑屏远控 | [Scrcpy Android 设备配置与部署](docs/SCREEN-CONTROL.md) | 主力机按需打开，异地复用 Tailscale，全天候重连待实测 |
 | 视频播放 | NOVA Video Player | 测试支持 SFTP/WebDAV 的播放器及拖动进度条时的行为 |
 | 可选网页界面 | copyparty | OpenList |
 | 实验性一体化服务 | Homedroid | Termux 托管服务 |
@@ -59,6 +60,7 @@ We do **not** claim to extend Android's `/data` partition or enable games to ins
 | Primary phone SAF access | [RSAF](https://github.com/chenxiaolong/RSAF) / rclone backends | network-aware file manager |
 | Selected folder sync | [Syncthing-Fork](https://github.com/researchxxl/syncthing-android) | none needed for on-demand only |
 | Private remote access | [Tailscale](https://tailscale.com/) | WireGuard or other proven VPN if Android VPN conflicts |
+| Screen control with the home panel off | [Scrcpy Android profile and setup](docs/SCREEN-CONTROL.md) | On demand over LAN or Tailscale. Unattended reconnection awaits device testing. |
 | Video playback | [NOVA Video Player](https://github.com/nova-video-player/aos-AVP) | client supporting SFTP/WebDAV |
 | Browser file UI (optional) | [copyparty](https://github.com/9001/copyparty) | [OpenList](https://github.com/OpenListTeam/OpenList) |
 | More complete phone server (experimental) | [Homedroid](https://github.com/sudiptacmd/homedroid) | Termux managed services |
