@@ -53,19 +53,19 @@ class PocketTransport private constructor(
     }
 
     /** Called only after the six-digit PAKE succeeded, on the same Wi-Fi network and IP. */
-    internal suspend fun finishPairing(context: Context, host: String, manager: AdbDeviceConnection) {
+    internal suspend fun finishPairing(context: Context, host: String, manager: AdbDeviceConnection, connectionPort: Int?) {
         check(pairingNetwork != null && host == pairingHost)
-        val result = NsdConnectionPortDiscovery(context).resolveConnectionPort(host, 1, true)
-        val port = when (result) {
+        val port = connectionPort ?: when (val result = NsdConnectionPortDiscovery(context).resolveConnectionPort(host, 1, true)) {
             is ConnectionPortResult.Updated -> result.port
             is ConnectionPortResult.Unchanged -> result.port
             else -> throw IOException("Home debugging service was not uniquely resolved")
         }
+        require(port in 1..65535)
         currentCoroutineContext().ensureActive()
         if (!manager.connect(host, port)) throw IOException("Home TLS enrollment failed")
         currentCoroutineContext().ensureActive()
         val pin = observed ?: throw IOException("Home TLS key missing")
-        if (!prefs.edit().putString("spki", pin).putString("host", host).commit()) throw IOException("Could not store peer")
+        if (!prefs.edit().putString("spki", pin).putString("host", host).putInt("port", port).commit()) throw IOException("Could not store peer")
     }
 
     companion object {
@@ -77,6 +77,9 @@ class PocketTransport private constructor(
             val networks = requireNotNull(context.getSystemService(ConnectivityManager::class.java))
             return PocketTransport(context.applicationContext, wifiFor(networks, numeric(host)), host)
         }
+
+        fun onHomeLink(context: Context, host: String): Boolean =
+            runCatching { enrollment(context, host) }.isSuccess
 
         fun awayAddress(context: Context): String {
             val vpn = activeVpn(requireNotNull(context.getSystemService(ConnectivityManager::class.java)))

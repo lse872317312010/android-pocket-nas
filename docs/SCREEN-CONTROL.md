@@ -14,6 +14,10 @@
 
 **异地测试**复用两机已连接的 Tailscale。将家中节点在 tailnet 中命名为 `pocket-nas` 并启用 MagicDNS。应用用名称和上次局域网发现的连接端口访问。无线调试重启后端口可能改变，此时需要回到家庭 Wi-Fi 刷新。
 
+**只看到「重新查找」**：home.3 显示扫描进度；等待约 8 秒仍无设备，可直接点「手动配对」。先填写家庭机无线调试主页面的 IPv4 地址和连接端口，再打开它的「使用配对码配对设备」弹窗，填写弹窗端口和六位码。完成后主力机会记住已经验证的端口。两个页面上的端口用途不同。手动路径仍要求同一可信 Wi-Fi、系统配对及 TLS 身份验证。
+
+**Empty device list (home.3)**: scanning shows progress and an empty-state hint. Manual pairing uses the IPv4 address and connection port from the home phone's Wireless debugging main page, followed by the separate pairing port and six digits from its pairing dialog. Enrollment and subsequent LAN connections can use the verified port even when multicast discovery is unavailable. The Wi-Fi and TLS checks also apply to this path.
+
 **外网连接保护（home.2）** 首次在可信家庭 Wi-Fi 输入六位码后，应用在同一 Wi-Fi、同一 IP 上首次连接无线调试服务并登记 TLS 公钥。这个首次登记依赖家庭网络可信。以后传文件、查容量和投屏都会在 TLS 握手中核对该公钥。异地的名称解析与实际连接都固定到主力机当前的 VPN。私网离线或密钥变化时连接停止。家庭机重启导致调试服务更换密钥时，请回家重新配对。无须开放公网端口，日常使用无需新增密码或指纹确认。两台设备都须已加入自己的 Tailscale 私网，家庭机须命名为 `pocket-nas`。应用不会修改路由器或 tailnet 的访问策略。
 
 **测试包迁移** 早期 CI 测试包使用临时签名。如 Android 提示签名冲突，卸载旧主力机测试包，安装新版后在家重新配对。在家庭机无线调试的已配对列表中，可先忘记旧主力机条目。此过程只需在切换旧测试包时处理。

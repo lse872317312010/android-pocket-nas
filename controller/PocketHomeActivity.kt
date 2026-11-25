@@ -42,12 +42,13 @@ class PocketHomeActivity : ComponentActivity() {
                     is PairingState.Success -> pendingHost?.let { host ->
                         prefs.edit().putString("paired", host).apply()
                         pendingHost = null
-                        connect(host)
+                        connect(host, justPaired = true)
                     }
                     is PairingState.Failure -> {
                         pendingHost = null
                         message("配对失败。请在家庭机重新打开配对码，再重试。")
                         button("重新查找", ::findPhone)
+                        button("手动配对", ::manualAddress)
                     }
                     else -> Unit
                 }
@@ -79,20 +80,36 @@ class PocketHomeActivity : ComponentActivity() {
 
     private fun findPhone() {
         message("两台手机连同一 Wi-Fi。在家庭机打开「无线调试 → 使用配对码配对设备」，然后点下面出现的家庭机。")
+        val progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { isIndeterminate = true }
+        box.addView(progress)
+        val status = TextView(this).apply { text = "正在查找附近的家庭机…" }
+        box.addView(status)
         val token = generation
         val listed = mutableMapOf<String, Button>()
+        status.postDelayed({
+            if (generation == token && listed.isEmpty()) {
+                progress.visibility = android.view.View.GONE
+                status.text = "暂未找到设备。可以打开家庭机的配对码弹窗，也可以直接手动配对。"
+            }
+        }, 8000)
         fun update(action: () -> Unit) = runOnUiThread { if (generation == token && !isDestroyed) action() }
         val listener = object : AdbServiceBrowser.Listener {
             override fun onFound(id: String) {}
             override fun onResolutionFailed(id: String) = onLost(id)
-            override fun onLost(id: String) = update { listed.remove(id)?.let(box::removeView) }
+            override fun onLost(id: String) = update {
+                listed.remove(id)?.let(box::removeView)
+                if (listed.isEmpty()) status.text = "正在等待家庭机，请保持配对码弹窗打开，或使用手动配对。"
+            }
             override fun onFailure(errorCode: Int?) = update {
                 message("当前 Wi-Fi 无法发现设备。确认两台手机在同一局域网，并重新打开家庭机配对码。")
                 button("重新查找", ::findPhone)
+                button("手动配对", ::manualAddress)
             }
             override fun onResolved(id: String, service: DiscoveredAdbService) {
                 val host = service.hosts.firstOrNull { ':' !in it } ?: service.hosts.firstOrNull() ?: return
                 update {
+                    progress.visibility = android.view.View.GONE
+                    status.text = "已找到设备，点下方的家庭机进行配对。"
                     listed.remove(id)?.let(box::removeView)
                     val row = Button(this@PocketHomeActivity).apply {
                         text = "配对家庭机 · " + host
@@ -104,40 +121,73 @@ class PocketHomeActivity : ComponentActivity() {
             }
         }
         button("重新查找", ::findPhone)
+        button("手动配对", ::manualAddress)
         try { browser = discovery.browse("_adb-tls-pairing._tcp.", listener) }
         catch (_: Exception) { listener.onFailure(null) }
     }
 
-    private fun enterCode(host: String, port: Int) {
-        message("输入家庭机此刻显示的六位配对码")
+    private fun manualAddress() {
+        message("第 1 步：在 1 TB 机的「无线调试」主页面找到「IP 地址和端口」，将整行填在这里。")
+        val address = EditText(this).apply {
+            setSingleLine()
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            hint = "例如 192.168.1.20:37001"
+        }
+        box.addView(address)
+        button("下一步") {
+            val endpoint = PocketPairAddress.parse(address.text.toString())
+            if (endpoint == null) { address.error = "请输入 IPv4 地址:端口"; return@button }
+            enterCode(endpoint.host, null, endpoint.port)
+        }
+        button("返回自动查找", ::findPhone)
+    }
+
+    private fun enterCode(host: String, port: Int?, connectionPort: Int? = null) {
+        message(if (port == null) "第 2 步：在 1 TB 机点「使用配对码配对设备」。填弹窗里冒号后的端口，以及六位配对码。"
+            else "输入家庭机此刻显示的六位配对码")
+        val portField = if (port == null) EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER
+            hint = "配对弹窗里的端口"
+            box.addView(this)
+        } else null
         val code = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
             filters = arrayOf(android.text.InputFilter.LengthFilter(6))
+            hint = "六位配对码"
             isSaveEnabled = false
         }
         box.addView(code)
         button("配对并连接") {
             val digits = code.text.toString()
             if (!digits.matches(Regex("[0-9]{6}"))) { code.error = "需要六位数字"; return@button }
+            val pairPort = port ?: PocketPairAddress.port(portField?.text.toString())
+            if (pairPort == null || pairPort == connectionPort) {
+                portField?.error = "请填写配对弹窗的端口，与主页面端口不同"
+                return@button
+            }
             pendingHost = host
             code.text.clear()
             message("正在使用 Android 无线调试配对…")
-            pairing.pair(host, port, digits)
+            pairing.pair(host, pairPort, digits, connectionPort)
         }
         button("返回选择设备", ::findPhone)
     }
 
-    private fun connect(host: String) {
+    private fun connect(host: String, justPaired: Boolean = false) {
         if (busy) return
         busy = true
         message("正在连接已配对的家庭机…")
         lifecycleScope.launch {
             try {
                 val saved = repository.getDevices().firstOrNull { it.id == id && it.host == host }
-                val port = when (val found = discovery.resolveConnectionPort(host, saved?.port ?: 1, true)) {
+                val security = getSharedPreferences("pocket-security", MODE_PRIVATE)
+                val enrolled = security.getInt("port", 0).takeIf { it in 1..65535 && security.getString("host", null) == host }
+                val lastPort = saved?.port ?: enrolled
+                val port = if (justPaired && enrolled != null) enrolled else when (val found = discovery.resolveConnectionPort(host, saved?.port ?: 1, true)) {
                     is ConnectionPortResult.Updated -> found.port
                     is ConnectionPortResult.Unchanged -> found.port
-                    ConnectionPortResult.NotFound, is ConnectionPortResult.Unavailable -> null
+                    ConnectionPortResult.NotFound, is ConnectionPortResult.Unavailable, ConnectionPortResult.Incomplete ->
+                        lastPort?.takeIf { PocketTransport.onHomeLink(this@PocketHomeActivity, host) }
                     else -> null
                 }
                 if (port == null) {
