@@ -1,0 +1,535 @@
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 6a5a392..df8e15a 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -105,11 +105,11 @@ android {
+     compileSdk = 36
+ 
+     defaultConfig {
+-        applicationId = "com.scrcpy.remote"
++        applicationId = "io.github.pocketnas.home"
+         minSdk = 26
+         targetSdk = 36
+-        versionCode = 86
+-        versionName = "3.5.7"
++        versionCode = 89
++        versionName = "3.5.7-home.3"
+         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+         buildConfigField("String", "PUBLISHER_NAME", buildConfigString(publisherName))
+         buildConfigField("String", "PUBLISHER_EMAIL", buildConfigString(publisherEmail))
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 21f85d9..623e647 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -34,7 +34,7 @@
+       everywhere. The mirror screen keeps the older Back on every version: see MirrorActivity.
+     -->
+     <application
+-        android:allowBackup="true"
++        android:allowBackup="false"
+         android:dataExtractionRules="@xml/data_extraction_rules"
+         android:enableOnBackInvokedCallback="false"
+         tools:targetApi="33"
+@@ -45,27 +45,31 @@
+         android:supportsRtl="true"
+         android:theme="@style/Theme.ScrcpyRemote">
+ 
++        <activity android:name=".ui.PocketHomeActivity" android:exported="true"
++            android:configChanges="orientation|screenSize|keyboardHidden"
++            android:label="家庭机">
++            <intent-filter>
++                <action android:name="android.intent.action.MAIN" />
++                <category android:name="android.intent.category.LAUNCHER" />
++            </intent-filter>
++        </activity>
++
++        <activity android:name=".ui.PocketFilesActivity" android:exported="false"
++            android:configChanges="orientation|screenSize|keyboardHidden" />
++
+         <activity
+             android:name=".ui.MainActivity"
+-            android:exported="true"
++            android:exported="false"
+             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density"
+             android:enableOnBackInvokedCallback="true"
+             android:launchMode="singleTop"
+             android:theme="@style/Theme.ScrcpyRemote"
+             tools:targetApi="34">
+-            <intent-filter>
+-                <action android:name="android.intent.action.MAIN" />
+-                <category android:name="android.intent.category.LAUNCHER" />
+-            </intent-filter>
+ 
+-            <!-- Quick-connect deep link: scrcpy://connect?host=192.168.1.20&port=5555 -->
+-            <intent-filter android:autoVerify="false">
+-                <action android:name="android.intent.action.VIEW" />
+-                <category android:name="android.intent.category.DEFAULT" />
+-                <category android:name="android.intent.category.BROWSABLE" />
+-                <data android:scheme="scrcpy" />
+-            </intent-filter>
+ 
++        </activity>
++        <activity android:name=".ui.PocketShareActivity" android:exported="true"
++            android:excludeFromRecents="true" android:noHistory="true">
+             <!-- Share a file straight to a device: the picked device is connected and sent it. -->
+             <intent-filter>
+                 <action android:name="android.intent.action.SEND" />
+diff --git a/app/src/main/java/com/scrcpy/remote/adb/AdbDeviceConnection.kt b/app/src/main/java/com/scrcpy/remote/adb/AdbDeviceConnection.kt
+index b4bb4ad..28f62ac 100644
+--- a/app/src/main/java/com/scrcpy/remote/adb/AdbDeviceConnection.kt
++++ b/app/src/main/java/com/scrcpy/remote/adb/AdbDeviceConnection.kt
+@@ -20,9 +20,11 @@ import java.util.concurrent.atomic.AtomicBoolean
+ class AdbDeviceConnection private constructor(
+     private val identity: AdbIdentity,
+     private val clientName: String,
++    transport: io.github.muntashirakon.adb.AdbConnection.HomeTransport,
+ ) : AbsAdbConnectionManager() {
+ 
+     init {
++        setHomeTransport(transport)
+         setApi(Build.VERSION.SDK_INT)
+         setTimeout(CONNECT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+         // The ordinary timeout is for the network. Once the device shows "Allow debugging?",
+@@ -129,10 +131,11 @@ class AdbDeviceConnection private constructor(
+          */
+         private const val SOCKET_OPEN_TIMEOUT_MS = 5_000L
+ 
+-        fun create(context: Context): AdbDeviceConnection {
++        fun create(context: Context, transport: com.scrcpy.remote.ui.PocketTransport =
++            com.scrcpy.remote.ui.PocketTransport.remembered(context)): AdbDeviceConnection {
+             val identity = AdbIdentity.get(context)
+             val name = "ScrcpyRemote-${Build.MODEL.replace(' ', '_')}"
+-            return AdbDeviceConnection(identity, name)
++            return AdbDeviceConnection(identity, name, transport)
+         }
+     }
+ }
+diff --git a/app/src/main/java/com/scrcpy/remote/adb/NsdConnectionPortDiscovery.kt b/app/src/main/java/com/scrcpy/remote/adb/NsdConnectionPortDiscovery.kt
+index 0da06af..4445f99 100644
+--- a/app/src/main/java/com/scrcpy/remote/adb/NsdConnectionPortDiscovery.kt
++++ b/app/src/main/java/com/scrcpy/remote/adb/NsdConnectionPortDiscovery.kt
+@@ -21,14 +21,14 @@ import java.util.Locale
+  */
+ class NsdConnectionPortDiscovery(context: Context, deadlineMillis: Long = 3_000) {
+     private val application = context.applicationContext
+-    private val discovery = ConnectionPortDiscovery(AdbServiceBrowser { listener ->
++    fun browse(type: String, listener: AdbServiceBrowser.Listener): Closeable {
+         val manager = checkNotNull(application.getSystemService(NsdManager::class.java))
+         val multicast = if (Build.VERSION.SDK_INT < 34) {
+             checkNotNull(application.getSystemService(WifiManager::class.java))
+                 .createMulticastLock("scrcpy-adb-port-recovery").apply { setReferenceCounted(false) }
+         } else null
+-        val registration = Registration(manager, listener)
+-        try {
++        val registration = Registration(manager, listener, type)
++        return try {
+             multicast?.acquire()
+             registration.start()
+             Closeable {
+@@ -39,7 +39,9 @@ class NsdConnectionPortDiscovery(context: Context, deadlineMillis: Long = 3_000)
+             releaseMulticast(multicast)
+             throw error
+         }
+-    }, deadlineMillis)
++    }
++
++    private val discovery = ConnectionPortDiscovery(AdbServiceBrowser { browse(SERVICE_TYPE, it) }, deadlineMillis)
+ 
+     suspend fun resolveConnectionPort(
+         host: String,
+@@ -51,6 +53,7 @@ class NsdConnectionPortDiscovery(context: Context, deadlineMillis: Long = 3_000)
+     private class Registration(
+         private val manager: NsdManager,
+         listener: AdbServiceBrowser.Listener,
++        private val serviceType: String,
+     ) : Closeable {
+         private class Service(val key: String, val info: NsdServiceInfo)
+         private class Resolution(val service: Service, val listener: NsdManager.ResolveListener)
+@@ -121,7 +124,7 @@ class NsdConnectionPortDiscovery(context: Context, deadlineMillis: Long = 3_000)
+             synchronized(lock) {
+                 check(!closed)
+                 discoveryStarted = true
+-                manager.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
++                manager.discoverServices(serviceType, NsdManager.PROTOCOL_DNS_SD, discoveryListener)
+             }
+         }
+ 
+@@ -206,7 +209,7 @@ class NsdConnectionPortDiscovery(context: Context, deadlineMillis: Long = 3_000)
+ 
+         private fun isConnectService(info: NsdServiceInfo): Boolean =
+             !info.serviceName.isNullOrBlank() &&
+-                NsdServiceTypes.matches(info.serviceType, SERVICE_TYPE)
++                NsdServiceTypes.matches(info.serviceType, serviceType)
+ 
+         @SuppressLint("NewApi") // Available on API 34, or Android 13 with T extension 7.
+         private fun cancelResolution(active: Resolution) {
+diff --git a/app/src/main/java/com/scrcpy/remote/session/ConnectionProbeChecks.kt b/app/src/main/java/com/scrcpy/remote/session/ConnectionProbeChecks.kt
+index 9be0a9d..dd4fea6 100644
+--- a/app/src/main/java/com/scrcpy/remote/session/ConnectionProbeChecks.kt
++++ b/app/src/main/java/com/scrcpy/remote/session/ConnectionProbeChecks.kt
+@@ -6,7 +6,7 @@ import com.scrcpy.remote.adb.AdbStreamChannel
+ import com.scrcpy.remote.adb.AdbSync
+ import com.scrcpy.remote.scrcpy.ScrcpyServerVersion
+ import java.net.InetSocketAddress
+-import java.net.Socket
++import com.scrcpy.remote.ui.PocketTransport
+ import java.net.SocketTimeoutException
+ import java.security.MessageDigest
+ 
+@@ -21,7 +21,9 @@ object ConnectionProbeChecks {
+         try {
+             return ConnectionProbe(
+                 network = {
+-                    Socket().use { it.connect(InetSocketAddress(host, port), TCP_TIMEOUT_MS) }
++                    PocketTransport.remembered(app).openSocket(host).use {
++                        it.connect(InetSocketAddress(host, port), TCP_TIMEOUT_MS)
++                    }
+                 },
+                 authorization = {
+                     val connection = AdbDeviceConnection.create(app).also { adb = it }
+diff --git a/app/src/main/java/com/scrcpy/remote/ui/MainViewModel.kt b/app/src/main/java/com/scrcpy/remote/ui/MainViewModel.kt
+index 91783cc..7294fa0 100644
+--- a/app/src/main/java/com/scrcpy/remote/ui/MainViewModel.kt
++++ b/app/src/main/java/com/scrcpy/remote/ui/MainViewModel.kt
+@@ -380,7 +380,7 @@ class MainViewModel @JvmOverloads constructor(
+      * The host, port and 6-digit code come from Developer options > Wireless debugging >
+      * Pair device with pairing code.
+      */
+-    fun pair(host: String, port: Int, code: String) {
++    fun pair(host: String, port: Int, code: String, connectionPort: Int? = null) {
+         // A canceled blocking pairing call may still be unwinding on IO. Do not overlap it.
+         if (pairingJob?.isCompleted == false) {
+             if (pairingJob?.isCancelled == true) {
+@@ -400,7 +400,8 @@ class MainViewModel @JvmOverloads constructor(
+             try {
+                 withContext(Dispatchers.IO) {
+                     currentCoroutineContext().ensureActive()
+-                    val manager = AdbDeviceConnection.create(getApplication())
++                    val transport = PocketTransport.enrollment(getApplication(), host)
++                    val manager = AdbDeviceConnection.create(getApplication(), transport)
+                     var pairingFailure: Exception? = null
+                     try {
+                         currentCoroutineContext().ensureActive()
+@@ -416,6 +417,7 @@ class MainViewModel @JvmOverloads constructor(
+                             throw PairingRejectedException()
+                         }
+                         currentCoroutineContext().ensureActive()
++                        transport.finishPairing(getApplication(), host, manager, connectionPort)
+                     } catch (e: Exception) {
+                         pairingFailure = e
+                         throw e
+diff --git a/app/src/main/res/xml/backup_rules.xml b/app/src/main/res/xml/backup_rules.xml
+index b014184..83ab7e5 100644
+--- a/app/src/main/res/xml/backup_rules.xml
++++ b/app/src/main/res/xml/backup_rules.xml
+@@ -1,6 +1,9 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <full-backup-content>
+     <exclude domain="file" path="adb/" />
++    <exclude domain="sharedpref" path="pocket-home.xml" />
++    <exclude domain="sharedpref" path="pocket-files.xml" />
++    <exclude domain="sharedpref" path="pocket-security.xml" />
+     <exclude domain="sharedpref" path="scrcpy_remote.xml" />
+     <exclude domain="sharedpref" path="shortcut_trust.xml" />
+     <exclude domain="sharedpref" path="precision_pad.xml" />
+diff --git a/app/src/main/res/xml/data_extraction_rules.xml b/app/src/main/res/xml/data_extraction_rules.xml
+index b8cedac..d575421 100644
+--- a/app/src/main/res/xml/data_extraction_rules.xml
++++ b/app/src/main/res/xml/data_extraction_rules.xml
+@@ -2,12 +2,18 @@
+ <data-extraction-rules>
+     <cloud-backup>
+         <exclude domain="file" path="adb/" />
++        <exclude domain="sharedpref" path="pocket-home.xml" />
++        <exclude domain="sharedpref" path="pocket-files.xml" />
++        <exclude domain="sharedpref" path="pocket-security.xml" />
+         <exclude domain="sharedpref" path="scrcpy_remote.xml" />
+         <exclude domain="sharedpref" path="shortcut_trust.xml" />
+         <exclude domain="sharedpref" path="precision_pad.xml" />
+     </cloud-backup>
+     <device-transfer>
+         <exclude domain="file" path="adb/" />
++        <exclude domain="sharedpref" path="pocket-home.xml" />
++        <exclude domain="sharedpref" path="pocket-files.xml" />
++        <exclude domain="sharedpref" path="pocket-security.xml" />
+         <exclude domain="sharedpref" path="scrcpy_remote.xml" />
+         <exclude domain="sharedpref" path="shortcut_trust.xml" />
+         <exclude domain="sharedpref" path="precision_pad.xml" />
+diff --git a/third_party/libadb/src/main/java/io/github/muntashirakon/adb/AbsAdbConnectionManager.java b/third_party/libadb/src/main/java/io/github/muntashirakon/adb/AbsAdbConnectionManager.java
+index 96795ca..2818015 100644
+--- a/third_party/libadb/src/main/java/io/github/muntashirakon/adb/AbsAdbConnectionManager.java
++++ b/third_party/libadb/src/main/java/io/github/muntashirakon/adb/AbsAdbConnectionManager.java
+@@ -33,6 +33,11 @@ public abstract class AbsAdbConnectionManager implements Closeable {
+     private final Object mLock = new Object();
+     @Nullable
+     private AdbConnection mAdbConnection;
++    private AdbConnection.HomeTransport homeTransport;
++
++    protected final void setHomeTransport(AdbConnection.HomeTransport policy) {
++        homeTransport = Objects.requireNonNull(policy);
++    }
+     private String mHostAddress = "127.0.0.1";
+     private int mApi = Build.VERSION_CODES.BASE;
+     private long mTimeout = Long.MAX_VALUE;
+@@ -294,6 +299,7 @@ public abstract class AbsAdbConnectionManager implements Closeable {
+ 
+             mHostAddress = host;
+             mAdbConnection = new AdbConnection.Builder(host, port)
++                    .setHomeTransport(homeTransport)
+                     .setApi(mApi)
+                     .setKeyPair(getAdbKeyPair())
+                     .setDeviceName(Objects.requireNonNull(getDeviceName()))
+@@ -338,6 +344,7 @@ public abstract class AbsAdbConnectionManager implements Closeable {
+ 
+             mHostAddress = host;
+             mAdbConnection = new AdbConnection.Builder(host, port)
++                    .setHomeTransport(homeTransport)
+                     .setApi(mApi)
+                     .setKeyPair(getAdbKeyPair())
+                     .setDeviceName(Objects.requireNonNull(getDeviceName()))
+@@ -367,6 +374,7 @@ public abstract class AbsAdbConnectionManager implements Closeable {
+                 return false;
+             }
+             mAdbConnection = new AdbConnection.Builder(mHostAddress, port)
++                    .setHomeTransport(homeTransport)
+                     .setApi(mApi)
+                     .setKeyPair(getAdbKeyPair())
+                     .setDeviceName(Objects.requireNonNull(getDeviceName()))
+@@ -400,6 +408,7 @@ public abstract class AbsAdbConnectionManager implements Closeable {
+             }
+             mHostAddress = host;
+             mAdbConnection = new AdbConnection.Builder(host, port)
++                    .setHomeTransport(homeTransport)
+                     .setApi(mApi)
+                     .setKeyPair(getAdbKeyPair())
+                     .setDeviceName(Objects.requireNonNull(getDeviceName()))
+@@ -502,6 +511,7 @@ public abstract class AbsAdbConnectionManager implements Closeable {
+             try (PairingConnectionCtx pairingClient = new PairingConnectionCtx(Objects.requireNonNull(host), port,
+                     StringCompat.getBytes(Objects.requireNonNull(pairingCode), "UTF-8"), keyPair, getDeviceName())) {
+                 // TODO: 5/12/21 Return true/false instead of only exceptions
++                pairingClient.setHomeTransport(homeTransport);
+                 pairingClient.start();
+             }
+             return true;
+diff --git a/third_party/libadb/src/main/java/io/github/muntashirakon/adb/AdbConnection.java b/third_party/libadb/src/main/java/io/github/muntashirakon/adb/AdbConnection.java
+index e5bc392..5e84111 100644
+--- a/third_party/libadb/src/main/java/io/github/muntashirakon/adb/AdbConnection.java
++++ b/third_party/libadb/src/main/java/io/github/muntashirakon/adb/AdbConnection.java
+@@ -158,6 +158,18 @@ public class AdbConnection implements Closeable {
+     @NonNull
+     private final ConcurrentHashMap<Integer, AdbStream> mOpenedStreams;
+ 
++    public interface HomeTransport {
++        Socket openSocket(String host) throws IOException;
++        void verifyPeer(java.security.PublicKey key) throws java.security.cert.CertificateException;
++    }
++
++    static void requireHomeTls(boolean secure, int command) throws javax.net.ssl.SSLHandshakeException {
++        if ((!secure && command != AdbProtocol.A_STLS) || (secure && command == AdbProtocol.A_STLS)) {
++            throw new javax.net.ssl.SSLHandshakeException("Unexpected home transport handshake");
++        }
++    }
++
++    private final HomeTransport homeTransport;
+     private volatile boolean mIsTls = false;
+ 
+     @GuardedBy("lock")
+@@ -213,7 +225,7 @@ public class AdbConnection implements Closeable {
+     @NonNull
+     static AdbConnection create(@NonNull String host, int port, @NonNull KeyPair keyPair, int api,
+                                 int connectTimeoutMillis) throws IOException {
+-        return new AdbConnection(host, port, keyPair, api, connectTimeoutMillis);
++        return new AdbConnection(host, port, keyPair, api, connectTimeoutMillis, null);
+     }
+ 
+     /**
+@@ -221,14 +233,15 @@ public class AdbConnection implements Closeable {
+      */
+     @WorkerThread
+     private AdbConnection(@NonNull String host, int port, @NonNull KeyPair keyPair, int api,
+-                          int connectTimeoutMillis) throws IOException {
++                          int connectTimeoutMillis, HomeTransport homeTransport) throws IOException {
++        this.homeTransport = homeTransport;
+         this.mHost = Objects.requireNonNull(host);
+         this.mPort = port;
+         this.mApi = api;
+         this.mProtocolVersion = AdbProtocol.getProtocolVersion(mApi);
+         this.mMaxData = AdbProtocol.getMaxData(api);
+         this.mKeyPair = Objects.requireNonNull(keyPair);
+-        Socket socket = new Socket();
++        Socket socket = homeTransport == null ? new Socket() : homeTransport.openSocket(host);
+         try {
+             // An address that never answers would otherwise hold this thread, and the manager
+             // lock it is called under, for the kernel's own SYN timeout. Closing the socket from
+@@ -281,6 +294,7 @@ public class AdbConnection implements Closeable {
+                     // Read and parse a message off the socket's input stream
+                     AdbProtocol.Message msg = AdbProtocol.Message.parse(getInputStream(), mProtocolVersion, mMaxData);
+ 
++                    if (homeTransport != null) requireHomeTls(mIsTls, msg.command);
+                     switch (msg.command) {
+                         // Stream-oriented commands
+                         case AdbProtocol.A_OKAY:
+@@ -334,7 +348,7 @@ public class AdbConnection implements Closeable {
+                             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.GINGERBREAD) {
+                                 sendPacket(AdbProtocol.generateStls());
+ 
+-                                SSLContext sslContext = SslUtils.getSslContext(mKeyPair);
++                                SSLContext sslContext = SslUtils.getSslContext(mKeyPair, homeTransport);
+                                 SSLSocket tlsSocket = (SSLSocket) sslContext.getSocketFactory()
+                                         .createSocket(mSocket, mHost, mPort, true);
+                                 tlsSocket.startHandshake();
+@@ -740,6 +754,13 @@ public class AdbConnection implements Closeable {
+         private String mDeviceName;
+         private int mConnectTimeoutMillis = 0;
+ 
++        private HomeTransport homeTransport;
++
++        Builder setHomeTransport(HomeTransport policy) {
++            homeTransport = policy;
++            return this;
++        }
++
+         public Builder() {
+         }
+ 
+@@ -829,7 +850,7 @@ public class AdbConnection implements Closeable {
+                 }
+                 mKeyPair = new KeyPair(mPrivateKey, mCertificate);
+             }
+-            AdbConnection adbConnection = create(mHost, mPort, mKeyPair, mApi, mConnectTimeoutMillis);
++            AdbConnection adbConnection = new AdbConnection(mHost, mPort, mKeyPair, mApi, mConnectTimeoutMillis, homeTransport);
+             if (mDeviceName != null) {
+                 adbConnection.setDeviceName(mDeviceName);
+             }
+diff --git a/third_party/libadb/src/main/java/io/github/muntashirakon/adb/AdbTrustManager.java b/third_party/libadb/src/main/java/io/github/muntashirakon/adb/AdbTrustManager.java
+index 269379c..066e512 100644
+--- a/third_party/libadb/src/main/java/io/github/muntashirakon/adb/AdbTrustManager.java
++++ b/third_party/libadb/src/main/java/io/github/muntashirakon/adb/AdbTrustManager.java
+@@ -23,6 +23,10 @@ import javax.net.ssl.X509TrustManager;
+  * intercepting proxy's authority issued, is refused.
+  */
+ final class AdbTrustManager implements X509TrustManager {
++    private final AdbConnection.HomeTransport transport;
++    AdbTrustManager() { this(null); }
++    AdbTrustManager(AdbConnection.HomeTransport transport) { this.transport = transport; }
++
+     private static final int MIN_RSA_BITS = 2048;
+     private static final int MIN_EC_BITS = 256;
+ 
+@@ -55,6 +59,7 @@ final class AdbTrustManager implements X509TrustManager {
+         } catch (GeneralSecurityException e) {
+             throw new CertificateException("The ADB peer's certificate is not signed by its own key", e);
+         }
++        if (transport != null) transport.verifyPeer(key);
+     }
+ 
+     @Override
+diff --git a/third_party/libadb/src/main/java/io/github/muntashirakon/adb/PairingConnectionCtx.java b/third_party/libadb/src/main/java/io/github/muntashirakon/adb/PairingConnectionCtx.java
+index 20743cf..958891b 100644
+--- a/third_party/libadb/src/main/java/io/github/muntashirakon/adb/PairingConnectionCtx.java
++++ b/third_party/libadb/src/main/java/io/github/muntashirakon/adb/PairingConnectionCtx.java
+@@ -66,6 +66,8 @@ public final class PairingConnectionCtx implements Closeable {
+     private PairingAuthCtx mPairingAuthCtx;
+     private Socket mSocket;
+     private SSLSocket mSslSocket;
++    private AdbConnection.HomeTransport homeTransport;
++    void setHomeTransport(AdbConnection.HomeTransport policy) { homeTransport = policy; }
+     private static final int CONNECT_TIMEOUT_MS = 10_000;
+     private static final int IO_TIMEOUT_MS = 15_000;
+     private State mState = State.Ready;
+@@ -137,7 +139,7 @@ public final class PairingConnectionCtx implements Closeable {
+             socket = sslServerSocket.accept();
+             // TODO: Write automated test scripts after removing Conscrypt dependency.
+         } else { // role == Role.Client
+-            socket = new Socket();
++            socket = homeTransport == null ? new Socket() : homeTransport.openSocket(mHost);
+             mSocket = socket;
+             socket.connect(new java.net.InetSocketAddress(mHost, mPort), CONNECT_TIMEOUT_MS);
+         }
+@@ -285,8 +287,7 @@ public final class PairingConnectionCtx implements Closeable {
+             return false;
+         }
+ 
+-        PeerInfo theirPeerInfo = PeerInfo.readFrom(ByteBuffer.wrap(decryptedMsg));
+-        Log.d(TAG, theirPeerInfo.toString());
++        // The authenticated record may contain a persistent device identifier. Keep it out of logs.
+         return true;
+     }
+ 
+diff --git a/third_party/libadb/src/main/java/io/github/muntashirakon/adb/SslUtils.java b/third_party/libadb/src/main/java/io/github/muntashirakon/adb/SslUtils.java
+index ec25aed..8c0b963 100644
+--- a/third_party/libadb/src/main/java/io/github/muntashirakon/adb/SslUtils.java
++++ b/third_party/libadb/src/main/java/io/github/muntashirakon/adb/SslUtils.java
+@@ -24,8 +24,8 @@ import javax.net.ssl.X509ExtendedKeyManager;
+ import javax.net.ssl.X509TrustManager;
+ 
+ final class SslUtils {
+-    private static boolean customConscrypt = false;
+-    private static SSLContext sslContext;
++    private static volatile boolean customConscrypt = false;
++
+ 
+     public static boolean isCustomConscrypt() {
+         return customConscrypt;
+@@ -34,9 +34,13 @@ final class SslUtils {
+     @SuppressLint("TrulyRandom") // The users are already instructed to fix this issue
+     @NonNull
+     public static SSLContext getSslContext(KeyPair keyPair) throws NoSuchAlgorithmException, KeyManagementException {
+-        if (sslContext != null) {
+-            return sslContext;
+-        }
++        return getSslContext(keyPair, null);
++    }
++
++    static SSLContext getSslContext(KeyPair keyPair, AdbConnection.HomeTransport transport)
++            throws NoSuchAlgorithmException, KeyManagementException {
++        // Each connection gets its own verifier and a fresh TLS session cache.
++        SSLContext sslContext;
+         try {
+             Class<?> providerClass = Class.forName("org.conscrypt.OpenSSLProvider");
+             Provider openSslProvder = (Provider) providerClass.getDeclaredConstructor().newInstance();
+@@ -54,7 +58,7 @@ final class SslUtils {
+         }
+         Log.w("SslUtils", "Using " + (customConscrypt ? "custom" : "default") + " TLSv1.3 provider...");
+         sslContext.init(new KeyManager[]{getKeyManager(keyPair)},
+-                new X509TrustManager[]{new AdbTrustManager()},
++                new X509TrustManager[]{new AdbTrustManager(transport)},
+                 new SecureRandom());
+         return sslContext;
+     }
+diff --git a/third_party/libadb/src/test/java/io/github/muntashirakon/adb/AdbTrustManagerTest.java b/third_party/libadb/src/test/java/io/github/muntashirakon/adb/AdbTrustManagerTest.java
+index 2c61105..a581a68 100644
+--- a/third_party/libadb/src/test/java/io/github/muntashirakon/adb/AdbTrustManagerTest.java
++++ b/third_party/libadb/src/test/java/io/github/muntashirakon/adb/AdbTrustManagerTest.java
+@@ -37,6 +37,31 @@ public class AdbTrustManagerTest {
+         trust.checkServerTrusted(chain, "GENERIC");
+     }
+ 
++    @Test
++    public void homeTransportRequiresTlsBeforeAuthorizationOrConnectedPackets() throws Exception {
++        for (int cmd : new int[]{AdbProtocol.A_CNXN, AdbProtocol.A_AUTH, AdbProtocol.A_WRTE}) {
++            assertThrows(javax.net.ssl.SSLHandshakeException.class, () -> AdbConnection.requireHomeTls(false, cmd));
++        }
++        AdbConnection.requireHomeTls(false, AdbProtocol.A_STLS);
++        AdbConnection.requireHomeTls(true, AdbProtocol.A_CNXN);
++        assertThrows(javax.net.ssl.SSLHandshakeException.class,
++                () -> AdbConnection.requireHomeTls(true, AdbProtocol.A_STLS));
++    }
++
++    @Test
++    public void homeVerifierReceivesTheActualKeyDuringCertificateValidation() throws Exception {
++        AdbTrustManager pinned = new AdbTrustManager(new AdbConnection.HomeTransport() {
++            public java.net.Socket openSocket(String host) { throw new AssertionError(); }
++            public void verifyPeer(PublicKey key) throws CertificateException {
++                if (!DEVICE.getPublic().equals(key)) throw new CertificateException("Different peer");
++            }
++        });
++        X509Certificate original = certificate(DEVICE.getPublic(), ADBD, DEVICE.getPrivate(), ADBD, "SHA256withRSA");
++        pinned.checkServerTrusted(new X509Certificate[]{original}, "RSA");
++        X509Certificate other = certificate(OTHER.getPublic(), ADBD, OTHER.getPrivate(), ADBD, "SHA256withRSA");
++        assertThrows(CertificateException.class, () -> pinned.checkServerTrusted(new X509Certificate[]{other}, "RSA"));
++    }
++
+     @Test
+     public void anEllipticCurveKeyOfAdequateStrengthIsAccepted() throws Exception {
+         KeyPair ec = ec();

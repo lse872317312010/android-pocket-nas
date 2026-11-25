@@ -1,0 +1,19 @@
+{
+  "format": "scrcpy-remote-settings",
+  "version": 13,
+  "devices": [
+    {
+      "id": "android-pocket-nas-screen",
+      "name": "Pocket NAS · Screen",
+      "host": "192.0.2.1",
+      "port": 37001,
+      "mirroringSettings": {
+        "displayId": 0,
+        "turnScreenOff": true,
+        "stayAwake": true,
+        "powerOffOnClose": true
+      }
+    }
+  ],
+  "settings": {}
+}
